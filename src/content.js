@@ -1,4 +1,8 @@
 (function () {
+  "use strict";
+
+  const PAGE_WINDOW = window;
+
   const ROOT_ID = "ld-drawer-root";
   const IMAGE_PREVIEW_ROOT_ID = "ld-image-preview-root";
   const PAGE_OPEN_CLASS = "ld-drawer-page-open";
@@ -8,25 +12,29 @@
   const SETTINGS_KEY = "ld-drawer-settings-v1";
   const LOAD_MORE_BATCH_SIZE = 20;
   const LOAD_MORE_TRIGGER_OFFSET = 240;
+  const DIRECT_REPLIES_MAX_BATCHES = 5;
+  const DIRECT_REPLIES_FALLBACK_BATCHES = 3;
+  const TOPIC_CACHE_MAX_ENTRIES = 12;
+  const TOPIC_CACHE_TTL = 10 * 60 * 1000;
+  const TOPIC_CACHE_BACKGROUND_REFRESH_AGE = 30 * 1000;
   const IMAGE_PREVIEW_SCALE_MIN = 1;
   const IMAGE_PREVIEW_SCALE_MAX = 4;
   const IMAGE_PREVIEW_SCALE_STEP = 0.2;
   const POST_BODY_FONT_SIZE_MIN = 13;
   const POST_BODY_FONT_SIZE_MAX = 18;
   const REPLY_UPLOAD_MARKER = "\u2063";
-  const POST_ACTION_TYPE_IDS = {
-    like: 2
-  };
   const DEFAULT_SETTINGS = {
-    previewMode: "iframe",
+    previewMode: "auto",
     postMode: "all",
     postBodyFontSize: 15,
     authorFilter: "all",
     replyOrder: "default",
-    floatingReplyButton: "off",
+    floatingReplyButton: "on",
     drawerWidth: "narrow",
     drawerWidthCustom: 720,
-    drawerMode: "overlay"
+    drawerMode: "overlay",
+    trackPreviewVisit: "on",
+    replyPanelPosition: null
   };
   const DRAWER_WIDTHS = {
     narrow: "clamp(320px, 34vw, 680px)",
@@ -93,11 +101,13 @@
     header: null,
     title: null,
     meta: null,
+    replyPanelMain: null,
     drawerBody: null,
     content: null,
     replyToggleButton: null,
     replyFabButton: null,
     replyPanel: null,
+    replyPanelHead: null,
     replyPanelTitle: null,
     replyTextarea: null,
     replySubmitButton: null,
@@ -134,12 +144,16 @@
     currentFallbackTitle: "",
     currentTopic: null,
     currentLatestRepliesTopic: null,
+    currentTopicFetchedAt: 0,
     currentTargetSpec: null,
     replyTargetPostNumber: null,
     replyTargetLabel: "",
     abortController: null,
     loadMoreAbortController: null,
     replyAbortController: null,
+    directRepliesAbortController: null,
+    directReplyCache: new Map(),
+    topicCache: new Map(),
     replyUploadControllers: [],
     replyUploadPendingCount: 0,
     replyUploadSerial: 0,
@@ -148,16 +162,25 @@
     lastLocation: location.href,
     settings: loadSettings(),
     isResizing: false,
+    isReplyPanelDragging: false,
     isLoadingMorePosts: false,
     isRefreshingLatestReplies: false,
     isReplySubmitting: false,
+    replyPanelDragPointerId: null,
+    replyPanelDragOffsetX: 0,
+    replyPanelDragOffsetY: 0,
+    replyPanelDragMoved: false,
+    replyPanelDragLastPosition: null,
+    suppressReplyPanelClick: false,
     loadMoreError: "",
     loadMoreStatus: null,
     hasShownPreviewNotice: false,
     topicTrackerSyncQueued: false,
     topicTrackerRefreshTimer: 0,
     topicTrackerRefreshStartedAt: 0,
-    topicTrackerRefreshLoadingObserved: false
+    topicTrackerRefreshLoadingObserved: false,
+    availableReactions: null,
+    toastStack: null
   };
 
   function init() {
@@ -177,125 +200,152 @@
     root.innerHTML = `
       <div class="ld-drawer-resize-handle" role="separator" aria-label="调整抽屉宽度" aria-orientation="vertical" title="拖动调整宽度"></div>
       <div class="ld-drawer-shell">
-        <div class="ld-drawer-header">
-          <div class="ld-drawer-title-group">
-            <div class="ld-drawer-eyebrow">LINUX DO 预览</div>
-            <h2 class="ld-drawer-title">点击帖子标题开始预览</h2>
-          </div>
-          <div class="ld-drawer-toolbar">
-            <div class="ld-drawer-meta"></div>
-            <div class="ld-drawer-actions">
-              <button class="ld-drawer-nav" type="button" data-nav="prev">上一帖</button>
-              <button class="ld-drawer-nav" type="button" data-nav="next">下一帖</button>
-              <button class="ld-drawer-settings-toggle" type="button" aria-expanded="false" aria-controls="ld-drawer-settings">选项</button>
-              <button class="ld-drawer-refresh" type="button" aria-label="刷新最新回复" title="刷新最新回复" hidden>刷新</button>
-              <button class="ld-drawer-reply-toggle ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" title="回复当前主题" hidden>回复主题</button>
-              <a class="ld-drawer-link" href="https://linux.do/latest" target="_blank" rel="noopener noreferrer">新标签打开</a>
-              <button class="ld-drawer-close" type="button" aria-label="关闭抽屉">关闭</button>
-            </div>
-          </div>
-        </div>
-        <div class="ld-drawer-settings" id="ld-drawer-settings" hidden>
-          <div class="ld-drawer-settings-card" role="dialog" aria-modal="true" aria-label="预览选项">
-            <div class="ld-settings-head">
-              <div class="ld-settings-title">预览选项</div>
-              <button class="ld-settings-close" type="button" aria-label="关闭预览选项">关闭</button>
-            </div>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">预览模式</span>
-              <select class="ld-setting-control" data-setting="previewMode">
-                <option value="smart">智能预览</option>
-                <option value="iframe">整页模式</option>
-              </select>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">内容范围</span>
-              <select class="ld-setting-control" data-setting="postMode">
-                <option value="all">完整主题</option>
-                <option value="first">仅首帖</option>
-              </select>
-            </label>
-            <label class="ld-setting-field" data-setting-group="postBodyFontSize">
-              <div class="ld-setting-row">
-                <span class="ld-setting-label">正文字号</span>
-                <span class="ld-setting-value" data-setting-value="postBodyFontSize">15px</span>
+        <div class="ld-toast-stack" aria-live="polite" aria-atomic="true"></div>
+        <div class="ld-drawer-main">
+          <div class="ld-drawer-header">
+            <div class="ld-drawer-header-top">
+              <div class="ld-drawer-eyebrow">LINUX DO 预览</div>
+              <div class="ld-drawer-header-actions" role="toolbar" aria-label="抽屉操作">
+                <button class="ld-drawer-nav" type="button" data-nav="prev" data-tooltip="上一帖" aria-label="上一帖">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button class="ld-drawer-nav" type="button" data-nav="next" data-tooltip="下一帖" aria-label="下一帖">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+                <button class="ld-drawer-refresh" type="button" aria-label="刷新最新回复" data-tooltip="刷新最新回复" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+                </button>
+                <span class="ld-header-action-divider" aria-hidden="true"></span>
+                <button class="ld-drawer-settings-toggle" type="button" aria-expanded="false" aria-controls="ld-drawer-settings" data-tooltip="选项" aria-label="选项">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06-.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+                <button class="ld-drawer-reply-toggle ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" data-tooltip="回复当前主题" hidden>
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 12.5c0-4.14 3.36-7.5 7.5-7.5h7a1.5 1.5 0 0 1 0 3h-7A4.5 4.5 0 0 0 7 12.5v1.38l1.44-1.44a1.5 1.5 0 0 1 2.12 2.12l-4 4a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 1 1 2.12-2.12L4 13.88V12.5Z"/></svg>
+                </button>
+                <a class="ld-drawer-link" href="https://linux.do/latest" target="_blank" rel="noopener noreferrer" data-tooltip="新标签打开" aria-label="新标签打开">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <button class="ld-drawer-close" type="button" aria-label="关闭抽屉" data-tooltip="关闭">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
               </div>
-              <input
-                class="ld-setting-range"
-                type="range"
-                min="${POST_BODY_FONT_SIZE_MIN}"
-                max="${POST_BODY_FONT_SIZE_MAX}"
-                step="1"
-                data-setting="postBodyFontSize"
-              />
-              <span class="ld-setting-hint" data-setting-hint="postBodyFontSize">只调整帖子正文和代码字号，不影响标题和按钮</span>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">作者过滤</span>
-              <select class="ld-setting-control" data-setting="authorFilter">
-                <option value="all">全部作者</option>
-                <option value="topicOwner">只看楼主</option>
-              </select>
-              <span class="ld-setting-hint">只在智能预览里过滤显示，不影响原帖内容</span>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">回复排序</span>
-              <select class="ld-setting-control" data-setting="replyOrder">
-                <option value="default">默认顺序</option>
-                <option value="latestFirst">首帖 + 最新回复</option>
-              </select>
-              <span class="ld-setting-hint">长帖下会优先显示最新一批回复，不代表把整帖一次性完整倒序</span>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">悬浮回复入口</span>
-              <select class="ld-setting-control" data-setting="floatingReplyButton">
-                <option value="off">关闭</option>
-                <option value="on">开启</option>
-              </select>
-              <span class="ld-setting-hint">关闭后只保留头部的“回复主题”，开启后额外显示右侧悬浮快捷入口</span>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">抽屉模式</span>
-              <select class="ld-setting-control" data-setting="drawerMode">
-                <option value="push">挤压模式</option>
-                <option value="overlay">浮层模式</option>
-              </select>
-              <span class="ld-setting-hint">浮层模式下抽屉悬浮于页面上方，不压缩原有内容</span>
-            </label>
-            <label class="ld-setting-field">
-              <span class="ld-setting-label">抽屉宽度</span>
-              <select class="ld-setting-control" data-setting="drawerWidth">
-                <option value="narrow">窄</option>
-                <option value="medium">中</option>
-                <option value="wide">宽</option>
-                <option value="custom">自定义</option>
-              </select>
-              <span class="ld-setting-hint">也可以直接拖动抽屉左边边缘</span>
-            </label>
-            <button class="ld-settings-reset" type="button">恢复默认</button>
+            </div>
+            <div class="ld-drawer-title-group">
+              <h2 class="ld-drawer-title">点击帖子标题开始预览</h2>
+            </div>
+            <div class="ld-drawer-meta"></div>
           </div>
-        </div>
-        <div class="ld-drawer-body">
-          <div class="ld-drawer-content"></div>
-        </div>
-        <button class="ld-drawer-reply-fab ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" title="回复当前主题">
-          <span class="ld-drawer-reply-fab-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M4 12.5c0-4.14 3.36-7.5 7.5-7.5h7a1.5 1.5 0 0 1 0 3h-7A4.5 4.5 0 0 0 7 12.5v1.38l1.44-1.44a1.5 1.5 0 0 1 2.12 2.12l-4 4a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 1 1 2.12-2.12L4 13.88V12.5Z" fill="currentColor"></path>
-            </svg>
-          </span>
-          <span class="ld-drawer-reply-fab-label">回复</span>
-        </button>
-        <div class="ld-drawer-reply-panel" id="ld-drawer-reply-panel" hidden>
-          <div class="ld-reply-panel-head">
-            <div class="ld-reply-panel-title">回复主题</div>
-            <button class="ld-reply-panel-close" type="button" aria-label="关闭快速回复">关闭</button>
+          <div class="ld-drawer-settings" id="ld-drawer-settings" hidden>
+            <div class="ld-drawer-settings-card" role="dialog" aria-modal="true" aria-label="预览选项">
+              <div class="ld-settings-head">
+                <div class="ld-settings-title">预览选项</div>
+                <button class="ld-settings-close" type="button" aria-label="关闭预览选项">关闭</button>
+              </div>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">预览模式</span>
+                <select class="ld-setting-control" data-setting="previewMode">
+                  <option value="auto">自动（推荐）</option>
+                  <option value="smart">智能预览</option>
+                  <option value="iframe">整页模式</option>
+                </select>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">内容范围</span>
+                <select class="ld-setting-control" data-setting="postMode">
+                  <option value="all">完整主题</option>
+                  <option value="first">仅首帖</option>
+                </select>
+              </label>
+              <label class="ld-setting-field" data-setting-group="postBodyFontSize">
+                <div class="ld-setting-row">
+                  <span class="ld-setting-label">正文字号</span>
+                  <span class="ld-setting-value" data-setting-value="postBodyFontSize">15px</span>
+                </div>
+                <input
+                  class="ld-setting-range"
+                  type="range"
+                  min="${POST_BODY_FONT_SIZE_MIN}"
+                  max="${POST_BODY_FONT_SIZE_MAX}"
+                  step="1"
+                  data-setting="postBodyFontSize"
+                />
+                <span class="ld-setting-hint" data-setting-hint="postBodyFontSize">只调整帖子正文和代码字号，不影响标题和按钮</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">作者过滤</span>
+                <select class="ld-setting-control" data-setting="authorFilter">
+                  <option value="all">全部作者</option>
+                  <option value="topicOwner">只看楼主</option>
+                </select>
+                <span class="ld-setting-hint">只在智能预览里过滤显示，不影响原帖内容</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">回复排序</span>
+                <select class="ld-setting-control" data-setting="replyOrder">
+                  <option value="default">默认顺序</option>
+                  <option value="latestFirst">首帖 + 最新回复</option>
+                </select>
+                <span class="ld-setting-hint">长帖下会优先显示最新一批回复，不代表把整帖一次性完整倒序</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">悬浮回复入口</span>
+                <select class="ld-setting-control" data-setting="floatingReplyButton">
+                  <option value="off">关闭</option>
+                  <option value="on">开启</option>
+                </select>
+                <span class="ld-setting-hint">开启后在智能预览和整页模式中都显示右侧悬浮快捷回复入口</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">阅读状态</span>
+                <select class="ld-setting-control" data-setting="trackPreviewVisit">
+                  <option value="on">预览即标记已读</option>
+                  <option value="off">预览不标记已读</option>
+                </select>
+                <span class="ld-setting-hint">仅影响智能/自动预览；整页模式由原网页决定阅读状态</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">抽屉模式</span>
+                <select class="ld-setting-control" data-setting="drawerMode">
+                  <option value="push">挤压模式</option>
+                  <option value="overlay">浮层模式</option>
+                </select>
+                <span class="ld-setting-hint">浮层模式下抽屉悬浮于页面上方，不压缩原有内容</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">抽屉宽度</span>
+                <select class="ld-setting-control" data-setting="drawerWidth">
+                  <option value="narrow">窄</option>
+                  <option value="medium">中</option>
+                  <option value="wide">宽</option>
+                  <option value="custom">自定义</option>
+                </select>
+                <span class="ld-setting-hint">也可以直接拖动抽屉左边边缘</span>
+              </label>
+              <button class="ld-settings-reset" type="button">恢复默认</button>
+            </div>
           </div>
-          <textarea class="ld-reply-textarea" rows="7" placeholder="写点什么... 支持 Markdown，可直接粘贴图片自动上传。Ctrl+Enter 或 Cmd+Enter 可发送"></textarea>
-          <div class="ld-reply-status" aria-live="polite"></div>
-          <div class="ld-reply-actions">
-            <button class="ld-reply-action" type="button" data-action="cancel">取消</button>
-            <button class="ld-reply-action ld-reply-action-primary" type="button" data-action="submit">发送回复</button>
+          <div class="ld-drawer-body">
+            <div class="ld-drawer-content"></div>
+          </div>
+          <button class="ld-drawer-reply-fab ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" title="回复当前主题">
+            <span class="ld-drawer-reply-fab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4 12.5c0-4.14 3.36-7.5 7.5-7.5h7a1.5 1.5 0 0 1 0 3h-7A4.5 4.5 0 0 0 7 12.5v1.38l1.44-1.44a1.5 1.5 0 0 1 2.12 2.12l-4 4a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 1 1 2.12-2.12L4 13.88V12.5Z" fill="currentColor"></path>
+              </svg>
+            </span>
+            <span class="ld-drawer-reply-fab-label">回复</span>
+          </button>
+          <div class="ld-drawer-reply-panel" id="ld-drawer-reply-panel" hidden>
+            <div class="ld-reply-panel-head">
+              <div class="ld-reply-panel-title">回复主题</div>
+              <button class="ld-reply-panel-close" type="button" aria-label="关闭快速回复">关闭</button>
+            </div>
+            <textarea class="ld-reply-textarea" rows="7" placeholder="写点什么... 支持 Markdown，可直接粘贴图片自动上传。Ctrl+Enter 或 Cmd+Enter 可发送"></textarea>
+            <div class="ld-reply-status" aria-live="polite"></div>
+            <div class="ld-reply-actions">
+              <button class="ld-reply-action" type="button" data-action="cancel">取消</button>
+              <button class="ld-reply-action ld-reply-action-primary" type="button" data-action="submit">发送回复</button>
+            </div>
           </div>
         </div>
       </div>
@@ -319,11 +369,13 @@
     state.header = root.querySelector(".ld-drawer-header");
     state.title = root.querySelector(".ld-drawer-title");
     state.meta = root.querySelector(".ld-drawer-meta");
+    state.replyPanelMain = root.querySelector(".ld-drawer-main");
     state.drawerBody = root.querySelector(".ld-drawer-body");
     state.content = root.querySelector(".ld-drawer-content");
     state.replyToggleButton = root.querySelector(".ld-drawer-reply-toggle");
     state.replyFabButton = root.querySelector(".ld-drawer-reply-fab");
     state.replyPanel = root.querySelector(".ld-drawer-reply-panel");
+    state.replyPanelHead = root.querySelector(".ld-reply-panel-head");
     state.replyPanelTitle = root.querySelector(".ld-reply-panel-title");
     state.replyTextarea = root.querySelector(".ld-reply-textarea");
     state.replySubmitButton = root.querySelector('[data-action="submit"]');
@@ -346,6 +398,7 @@
     state.prevButton = root.querySelector('[data-nav="prev"]');
     state.nextButton = root.querySelector('[data-nav="next"]');
     state.resizeHandle = root.querySelector(".ld-drawer-resize-handle");
+    state.toastStack = root.querySelector(".ld-toast-stack");
 
     root.querySelector(".ld-drawer-close").addEventListener("click", closeDrawer);
     state.prevButton.addEventListener("click", () => navigateTopic(-1));
@@ -359,6 +412,7 @@
     root.querySelector(".ld-reply-panel-close").addEventListener("click", () => setReplyPanelOpen(false));
     state.replyTextarea.addEventListener("keydown", handleReplyTextareaKeydown);
     state.replyTextarea.addEventListener("paste", handleReplyTextareaPaste);
+    state.replyPanelHead.addEventListener("pointerdown", startReplyPanelDrag);
     root.addEventListener("click", handleDrawerRootClick);
     root.addEventListener("wheel", handleDrawerRootWheel, { passive: false });
     imagePreviewRoot.addEventListener("click", handleImagePreviewClick);
@@ -374,6 +428,7 @@
     syncSettingsUI();
     applyPostBodyFontSize();
     applyDrawerWidth();
+    applyDrawerMode();
     syncNavigationState();
     syncLatestRepliesRefreshUI();
     syncReplyUI();
@@ -386,6 +441,9 @@
     document.addEventListener("pointermove", handleDrawerResizeMove, true);
     document.addEventListener("pointerup", stopDrawerResize, true);
     document.addEventListener("pointercancel", stopDrawerResize, true);
+    document.addEventListener("pointermove", handleReplyPanelDragMove, true);
+    document.addEventListener("pointerup", stopReplyPanelDrag, true);
+    document.addEventListener("pointercancel", stopReplyPanelDrag, true);
     window.addEventListener("resize", handleWindowResize, true);
     window.addEventListener("scroll", handleWindowScroll, { capture: true, passive: true });
   }
@@ -396,6 +454,13 @@
     }
 
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+
+    if (state.suppressReplyPanelClick) {
+      state.suppressReplyPanelClick = false;
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
 
@@ -414,6 +479,10 @@
 
     if (!state.replyPanel?.hidden && !target.closest(".ld-drawer-reply-panel") && !target.closest(".ld-drawer-reply-trigger")) {
       setReplyPanelOpen(false);
+    }
+
+    if (!target.closest(".ld-flag-wrap") && !target.closest(".ld-post-react-wrap") && !target.closest(".ld-post-replies-stat-wrap")) {
+      closeAllPopovers();
     }
 
     if (handleTopicTrackerClick(target)) {
@@ -449,6 +518,18 @@
       event.preventDefault();
       event.stopPropagation();
       closeImagePreview();
+      return;
+    }
+
+    if (
+      event.key === "Escape" &&
+      state.root?.querySelector(
+        ".ld-reactions-popover:not([hidden]), .ld-flag-popover:not([hidden]), .ld-post-replies-popover:not([hidden])"
+      )
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeAllPopovers();
       return;
     }
 
@@ -530,8 +611,101 @@
     return normalizeTopicUrl(url);
   }
 
+  function getTopicCacheKey(topicUrl) {
+    try {
+      const url = new URL(topicUrl, location.href);
+      url.hash = "";
+      return url.toString();
+    } catch {
+      return String(topicUrl || "");
+    }
+  }
+
+  function pruneTopicCache() {
+    const now = Date.now();
+
+    for (const [key, entry] of state.topicCache) {
+      if (!entry || now - Number(entry.cachedAt || 0) > TOPIC_CACHE_TTL) {
+        state.topicCache.delete(key);
+      }
+    }
+
+    while (state.topicCache.size > TOPIC_CACHE_MAX_ENTRIES) {
+      const oldestKey = state.topicCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      state.topicCache.delete(oldestKey);
+    }
+  }
+
+  function cacheCurrentTopic() {
+    if (!state.currentUrl || !state.currentTopic) {
+      return;
+    }
+
+    const key = getTopicCacheKey(state.currentUrl);
+    const entry = {
+      cachedAt: Date.now(),
+      topic: state.currentTopic,
+      latestRepliesTopic: state.currentLatestRepliesTopic,
+      targetSpec: state.currentTargetSpec,
+      resolvedTargetPostNumber: state.currentResolvedTargetPostNumber,
+      topicIdHint: state.currentTopicIdHint,
+      fallbackTitle: state.currentFallbackTitle,
+      currentViewTracked: state.currentViewTracked,
+      fetchedAt: Number(state.currentTopicFetchedAt || 0),
+      scrollTop: state.drawerBody?.scrollTop || 0
+    };
+
+    state.topicCache.delete(key);
+    state.topicCache.set(key, entry);
+    pruneTopicCache();
+  }
+
+  function getCachedTopic(topicUrl) {
+    pruneTopicCache();
+    const key = getTopicCacheKey(topicUrl);
+    const entry = state.topicCache.get(key);
+    if (!entry) {
+      return null;
+    }
+
+    state.topicCache.delete(key);
+    state.topicCache.set(key, entry);
+    return entry;
+  }
+
+  function restoreCachedTopic(entry, topicUrl, fallbackTitle, topicIdHint = null) {
+    if (!entry?.topic) {
+      return false;
+    }
+
+    state.currentTopicIdHint = entry.topicIdHint || topicIdHint || state.currentTopicIdHint;
+    state.currentViewTracked = Boolean(entry.currentViewTracked);
+    state.currentTopicFetchedAt = Number(entry.fetchedAt || entry.cachedAt || 0);
+    state.currentTrackRequest = null;
+    state.currentTrackRequestKey = "";
+    state.currentFallbackTitle = fallbackTitle || entry.fallbackTitle || "";
+
+    renderTopic(
+      entry.topic,
+      topicUrl,
+      state.currentFallbackTitle,
+      entry.resolvedTargetPostNumber,
+      {
+        latestRepliesTopic: entry.latestRepliesTopic || null,
+        targetSpec: getTopicTargetSpec(topicUrl, state.currentTopicIdHint) || entry.targetSpec || null,
+        preserveScrollTop: Number(entry.scrollTop || 0)
+      }
+    );
+
+    return true;
+  }
+
   function openDrawer(topicUrl, fallbackTitle, activeLink) {
     ensureDrawer();
+    cacheCurrentTopic();
 
     const entryElement = activeLink instanceof Element
       ? getTopicEntryContainer(activeLink)
@@ -571,21 +745,30 @@
       return;
     }
 
+    const cachedTopic = state.settings.previewMode === "iframe"
+      ? null
+      : getCachedTopic(topicUrl);
+
     state.currentUrl = topicUrl;
     state.currentFallbackTitle = fallbackTitle || "";
     state.currentResolvedTargetPostNumber = null;
     state.currentTargetSpec = null;
     state.currentTopic = null;
     state.currentLatestRepliesTopic = null;
+    state.currentTopicFetchedAt = 0;
+    state.directReplyCache.clear();
     state.deferOwnerFilterAutoLoad = false;
     state.loadMoreError = "";
     state.isLoadingMorePosts = false;
     state.isRefreshingLatestReplies = false;
     resetReplyComposer();
     state.title.textContent = fallbackTitle || "加载中…";
-    state.meta.textContent = "正在载入帖子内容…";
+    state.meta.textContent = cachedTopic ? "正在恢复上次预览…" : "正在载入帖子内容…";
     state.openInTab.href = topicUrl;
-    state.content.innerHTML = renderLoading();
+
+    if (!cachedTopic) {
+      state.content.innerHTML = renderLoading();
+    }
 
     highlightLink(activeLink);
     syncNavigationState();
@@ -598,16 +781,35 @@
     scheduleTopicTrackerPositionSync();
     syncLatestRepliesRefreshUI();
 
+    if (cachedTopic && restoreCachedTopic(cachedTopic, topicUrl, fallbackTitle, topicIdHint)) {
+      const cacheAge = Date.now() - Number(cachedTopic.fetchedAt || cachedTopic.cachedAt || 0);
+      if (cacheAge >= TOPIC_CACHE_BACKGROUND_REFRESH_AGE) {
+        queueMicrotask(() => {
+          if (state.currentUrl !== topicUrl || !document.body.classList.contains(PAGE_OPEN_CLASS)) {
+            return;
+          }
+
+          loadTopic(topicUrl, fallbackTitle, topicIdHint, {
+            preserveScrollTop: state.drawerBody?.scrollTop || cachedTopic.scrollTop || 0
+          });
+        });
+      }
+      return;
+    }
+
     loadTopic(topicUrl, fallbackTitle, topicIdHint);
   }
 
   function closeDrawer() {
+    cacheCurrentTopic();
+
     if (state.abortController) {
       state.abortController.abort();
       state.abortController = null;
     }
 
     cancelLoadMoreRequest();
+    cancelDirectRepliesRequest();
     cancelReplyRequest();
 
     document.body.classList.remove(PAGE_OPEN_CLASS);
@@ -626,6 +828,8 @@
     state.currentFallbackTitle = "";
     state.currentTopic = null;
     state.currentLatestRepliesTopic = null;
+    state.currentTopicFetchedAt = 0;
+    state.directReplyCache.clear();
     state.currentTargetSpec = null;
     state.deferOwnerFilterAutoLoad = false;
     state.isRefreshingLatestReplies = false;
@@ -861,6 +1065,7 @@
   async function loadTopic(topicUrl, fallbackTitle, topicIdHint = null, options = {}) {
     closeImagePreview();
     cancelLoadMoreRequest();
+    cancelDirectRepliesRequest();
     state.isLoadingMorePosts = false;
     state.loadMoreError = "";
 
@@ -890,7 +1095,12 @@
       let targetedTopic = null;
       let latestRepliesTopic = null;
 
-      if (state.currentViewTracked) {
+      if (state.settings.trackPreviewVisit === "off") {
+        topic = await fetchTrackedTopicJson(topicUrl, controller.signal, topicIdHint, {
+          canonical: true,
+          trackVisit: false
+        });
+      } else if (state.currentViewTracked) {
         topic = await fetchTrackedTopicJson(topicUrl, controller.signal, topicIdHint, {
           canonical: true,
           trackVisit: false
@@ -929,6 +1139,7 @@
         return;
       }
 
+      state.currentTopicFetchedAt = Date.now();
       renderTopic(topic, topicUrl, fallbackTitle, resolvedTargetPostNumber, {
         latestRepliesTopic,
         targetSpec,
@@ -983,6 +1194,81 @@
 
     updateLoadMoreStatus();
     queueAutoLoadCheck();
+    cacheCurrentTopic();
+  }
+
+  function canAppendLoadedPostsIncrementally() {
+    return Boolean(
+      state.content
+      && state.settings.postMode === "all"
+      && state.settings.replyOrder === "default"
+      && state.settings.authorFilter === "all"
+      && !state.currentTargetSpec?.hasTarget
+      && state.content.querySelector(".ld-topic-post-list")
+    );
+  }
+
+  function appendLoadedPostsIncrementally(nextTopic, fetchedPosts, previousScrollTop) {
+    if (!canAppendLoadedPostsIncrementally()) {
+      return false;
+    }
+
+    const postList = state.content.querySelector(".ld-topic-post-list");
+    if (!postList) {
+      return false;
+    }
+
+    const topicOwner = getTopicOwnerIdentity(nextTopic);
+    const existingPostNumbers = new Set(
+      Array.from(postList.querySelectorAll(".ld-post-card[data-post-number]"))
+        .map((node) => Number(node.dataset.postNumber))
+        .filter(Number.isFinite)
+    );
+
+    const fragment = document.createDocumentFragment();
+    let appendedCount = 0;
+    for (const post of [...(fetchedPosts || [])].sort((a, b) => Number(a?.post_number || 0) - Number(b?.post_number || 0))) {
+      const postNumber = Number(post?.post_number);
+      if (!Number.isFinite(postNumber) || existingPostNumbers.has(postNumber)) {
+        continue;
+      }
+      existingPostNumbers.add(postNumber);
+      fragment.appendChild(buildPostCard(post, topicOwner));
+      appendedCount += 1;
+    }
+
+    if (appendedCount > 0) {
+      postList.appendChild(fragment);
+    }
+
+    state.currentTopic = nextTopic;
+    state.currentTopicIdHint = typeof nextTopic?.id === "number" ? nextTopic.id : state.currentTopicIdHint;
+    state.deferOwnerFilterAutoLoad = false;
+    state.meta.textContent = buildTopicMeta(nextTopic, (nextTopic?.post_stream?.posts || []).length);
+
+    if (state.drawerBody && Number.isFinite(previousScrollTop)) {
+      state.drawerBody.scrollTop = previousScrollTop;
+    }
+
+    updateTopicLoadMoreSummary();
+    updateLoadMoreStatus();
+    syncReplyUI();
+    queueAutoLoadCheck();
+    cacheCurrentTopic();
+    return true;
+  }
+
+  function updateTopicLoadMoreSummary() {
+    const summary = state.content?.querySelector('[data-role="load-more-summary"]');
+    if (!summary || !state.currentTopic) {
+      return;
+    }
+
+    const loadedCount = (state.currentTopic.post_stream?.posts || []).length;
+    const totalCount = Number(state.currentTopic.posts_count || loadedCount);
+    summary.textContent = hasMoreTopicPosts(state.currentTopic)
+      ? `当前已加载 ${loadedCount} / ${totalCount} 条帖子，继续下滑会自动加载更多回复。`
+      : `当前已加载完整主题，共 ${totalCount} 条帖子。`;
   }
 
   function buildTopicView(topic, viewModel) {
@@ -1061,6 +1347,7 @@
     if (viewModel.hasHiddenPosts) {
       const note = document.createElement("div");
       note.className = "ld-topic-note";
+      note.dataset.role = "load-more-summary";
       note.textContent = viewModel.canAutoLoadMore
         ? `当前已加载 ${visiblePosts.length} / ${totalPosts} 条帖子，继续下滑会自动加载更多回复。`
         : `当前抽屉预览了 ${visiblePosts.length} / ${totalPosts} 条帖子，完整内容可点右上角“新标签打开”。`;
@@ -1181,6 +1468,7 @@
 
       return false;
     });
+
     return {
       ...viewModel,
       posts: filteredPosts,
@@ -1247,6 +1535,8 @@
     authorBlock.append(authorRow, meta);
     header.append(avatar, authorBlock);
 
+    const replyToTab = buildReplyToTab(post);
+
     const body = document.createElement("div");
     body.className = "ld-post-body cooked";
     body.innerHTML = post.cooked || "";
@@ -1256,277 +1546,158 @@
       link.rel = "noopener noreferrer";
     }
 
+    const postInfos = buildPostInfos(post);
+
     const actions = document.createElement("div");
     actions.className = "ld-post-actions";
 
-    actions.append(
-      buildLikeButton(post),
-      buildCopyLinkButton(post),
-      buildBookmarkButton(post),
-      buildReplyButton(post)
-    );
-    article.append(header, body, actions);
-    return article;
-  }
+    // --- Left group: copy link, bookmark, flag ---
+    const actionsLeft = document.createElement("div");
+    actionsLeft.className = "ld-post-actions-left";
 
-  function buildLikeButton(post) {
-    const likeState = getPostLikeState(post);
-    const button = buildPostActionButton({
-      action: "like",
-      label: likeState.count > 0 ? likeState.count.toLocaleString() : "",
-      title: likeState.acted ? "取消点赞" : "点赞",
-      ariaLabel: likeState.acted ? "取消点赞这条" : "点赞这条",
-      isActive: likeState.acted,
-      isPressed: likeState.acted,
-      icon: `
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M12.62 20.55a1.5 1.5 0 0 1-1.24 0C6.77 18.27 3 14.75 3 10.56 3 7.94 4.96 6 7.42 6c1.6 0 3.07.84 3.96 2.19A4.78 4.78 0 0 1 15.34 6C17.93 6 20 7.99 20 10.56c0 4.19-3.77 7.71-7.38 9.99Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-        </svg>
-      `
+    const copyLinkBtn = document.createElement("button");
+    copyLinkBtn.type = "button";
+    copyLinkBtn.className = "ld-post-icon-btn";
+    copyLinkBtn.setAttribute("aria-label", "复制帖子链接");
+    copyLinkBtn.title = "将此帖子的链接复制到剪贴板";
+    copyLinkBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+    copyLinkBtn.addEventListener("click", () => handleCopyPostLink(copyLinkBtn, post));
+
+    const isBookmarked = post.bookmarked === true;
+    const bookmarkBtn = document.createElement("button");
+    bookmarkBtn.type = "button";
+    bookmarkBtn.className = "ld-post-icon-btn" + (isBookmarked ? " ld-post-icon-btn--bookmarked" : "");
+    bookmarkBtn.setAttribute("aria-label", isBookmarked ? "取消书签" : "添加书签");
+    bookmarkBtn.title = "将此帖子加入书签";
+    bookmarkBtn.innerHTML = isBookmarked
+      ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`;
+    bookmarkBtn.addEventListener("click", () => handlePostBookmark(bookmarkBtn, post));
+
+    const flagWrap = document.createElement("div");
+    flagWrap.className = "ld-flag-wrap";
+    const flagBtn = document.createElement("button");
+    flagBtn.type = "button";
+    flagBtn.className = "ld-post-icon-btn ld-post-icon-btn--flag";
+    flagBtn.setAttribute("aria-label", "举报此帖子");
+    flagBtn.title = "以私密方式举报此帖子以引起注意，或发送一个关于它的个人消息";
+    flagBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`;
+    const flagPopover = buildFlagPopover(post);
+    flagPopover.setAttribute("hidden", "");
+    flagBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isHidden = flagPopover.hasAttribute("hidden");
+      closeAllPopovers();
+      if (isHidden) {
+        flagPopover.removeAttribute("hidden");
+      }
     });
-    button.addEventListener("click", () => handleLikeButtonClick(post, button));
-    return button;
-  }
+    flagWrap.append(flagBtn, flagPopover);
+    actionsLeft.append(copyLinkBtn, bookmarkBtn, flagWrap);
 
-  function buildCopyLinkButton(post) {
-    const button = buildPostActionButton({
-      action: "copy-link",
-      label: "",
-      title: "复制本帖链接",
-      ariaLabel: "复制这条帖子链接",
-      icon: `
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M10.5 13.5 13.5 10.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
-          <path d="M8.4 15.6 6.7 17.3a3 3 0 1 1-4.24-4.24l3.53-3.53A3 3 0 0 1 10.2 13.8L9.1 14.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-          <path d="m14.9 9.1 1.1-1.1a3 3 0 0 1 4.24 4.24l-3.53 3.53A3 3 0 0 1 12.48 12l1.7-1.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-        </svg>
-      `
+    // --- Right group: reactions, reply ---
+    const actionsRight = document.createElement("div");
+    actionsRight.className = "ld-post-actions-right";
+
+    const reactWrap = document.createElement("div");
+    reactWrap.className = "ld-post-react-wrap";
+
+    const postReactions = Array.isArray(post.reactions) ? post.reactions : [];
+    const likeAction = Array.isArray(post.actions_summary)
+      ? post.actions_summary.find((a) => a.id === 2)
+      : null;
+    const hasReacted = postReactions.some((r) => r.reacted === true) || likeAction?.acted === true;
+    const reactCount = postReactions.reduce((sum, r) => sum + (r.count || 0), 0)
+      || post.like_count
+      || likeAction?.count
+      || 0;
+
+    const reactBtn = document.createElement("button");
+    reactBtn.type = "button";
+    reactBtn.className = "ld-post-react-btn" + (hasReacted ? " ld-post-react-btn--reacted" : "");
+    reactBtn.setAttribute("aria-label", hasReacted ? "取消反应" : "添加反应");
+    reactBtn.innerHTML = `
+      <span class="ld-post-react-btn-icon" aria-hidden="true">
+        ${buildReactHeartIconSvg(hasReacted)}
+      </span>
+      ${reactCount > 0 ? `<span class="ld-post-react-count">${reactCount}</span>` : ""}
+    `;
+
+    const reactionsPopover = document.createElement("div");
+    reactionsPopover.className = "ld-reactions-popover";
+    reactionsPopover.setAttribute("hidden", "");
+
+    let reactHideTimer = null;
+
+    function showReactionsPopover() {
+      clearTimeout(reactHideTimer);
+      closeAllPopovers();
+      reactionsPopover.removeAttribute("hidden");
+      if (!reactionsPopover.dataset.loaded) {
+        reactionsPopover.dataset.loaded = "1";
+        populateReactionsPopover(reactionsPopover, post, reactBtn);
+      }
+    }
+
+    function hideReactionsPopoverDelayed() {
+      reactHideTimer = setTimeout(() => {
+        reactionsPopover.setAttribute("hidden", "");
+      }, 250);
+    }
+
+    reactWrap.addEventListener("mouseenter", showReactionsPopover);
+    reactWrap.addEventListener("mouseleave", hideReactionsPopoverDelayed);
+    reactionsPopover.addEventListener("mouseenter", () => clearTimeout(reactHideTimer));
+    reactionsPopover.addEventListener("mouseleave", hideReactionsPopoverDelayed);
+    reactBtn.addEventListener("click", () => {
+      reactionsPopover.setAttribute("hidden", "");
+      handlePostReact(reactBtn, post, "heart", reactionsPopover);
     });
-    button.addEventListener("click", () => handleCopyLinkButtonClick(post, button));
-    return button;
-  }
 
-  function buildBookmarkButton(post) {
-    const bookmarkState = getPostBookmarkState(post);
-    const button = buildPostActionButton({
-      action: "bookmark",
-      label: "",
-      title: bookmarkState.bookmarked ? "取消收藏" : "收藏",
-      ariaLabel: bookmarkState.bookmarked ? "取消收藏这条" : "收藏这条",
-      isActive: bookmarkState.bookmarked,
-      isPressed: bookmarkState.bookmarked,
-      icon: `
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <path d="M7.25 4.75h9.5a1.5 1.5 0 0 1 1.5 1.5v13.05a.45.45 0 0 1-.72.36L12 15.54l-5.53 4.12a.45.45 0 0 1-.72-.36V6.25a1.5 1.5 0 0 1 1.5-1.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path>
-        </svg>
-      `
-    });
-    button.addEventListener("click", () => handleBookmarkButtonClick(post, button));
-    return button;
-  }
+    reactWrap.append(reactBtn, reactionsPopover);
 
-  function buildReplyButton(post) {
-    const button = buildPostActionButton({
-      action: "reply",
-      label: "回复",
-      title: "回复这条",
-      ariaLabel: `回复第 ${post.post_number || "?"} 条`,
-      icon: `
-        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+    const replyButton = document.createElement("button");
+    replyButton.type = "button";
+    replyButton.className = "ld-post-reply-button";
+    replyButton.setAttribute("aria-label", `回复第 ${post.post_number || "?"} 条`);
+    replyButton.innerHTML = `
+      <span class="ld-post-reply-button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false">
           <path d="M4 12.5c0-4.14 3.36-7.5 7.5-7.5h7a1.5 1.5 0 0 1 0 3h-7A4.5 4.5 0 0 0 7 12.5v1.38l1.44-1.44a1.5 1.5 0 0 1 2.12 2.12l-4 4a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 1 1 2.12-2.12L4 13.88V12.5Z" fill="currentColor"></path>
         </svg>
-      `
-    });
-    button.addEventListener("click", () => openReplyPanelForPost(post));
-    return button;
-  }
+      </span>
+      <span class="ld-post-reply-button-label">回复这条</span>
+    `;
+    replyButton.addEventListener("click", () => openReplyPanelForPost(post));
 
-  function buildPostActionButton(options = {}) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ld-post-action-button";
-    if (options.action) {
-      button.dataset.action = options.action;
+    actionsRight.append(reactWrap, replyButton);
+    actions.append(actionsLeft, actionsRight);
+
+    if (replyToTab) {
+      article.append(header, replyToTab, body);
+    } else {
+      article.append(header, body);
     }
-    if (options.isActive) {
-      button.classList.add("is-active");
+    if (postInfos) {
+      article.appendChild(postInfos);
     }
-    if (!options.label) {
-      button.classList.add("is-icon-only");
-    }
-    if (options.title) {
-      button.title = options.title;
-    }
-    if (options.ariaLabel) {
-      button.setAttribute("aria-label", options.ariaLabel);
-    }
-    if (typeof options.isPressed === "boolean") {
-      button.setAttribute("aria-pressed", String(options.isPressed));
-    }
-
-    const icon = document.createElement("span");
-    icon.className = "ld-post-action-button-icon";
-    icon.innerHTML = options.icon || "";
-
-    const label = document.createElement("span");
-    label.className = "ld-post-action-button-label";
-    label.textContent = options.label || "";
-
-    button.append(icon, label);
-    return button;
-  }
-
-  function getPostLikeState(post) {
-    const summary = getPostActionSummary(post, POST_ACTION_TYPE_IDS.like);
-    return {
-      count: normalizeCount(summary?.count ?? post?.like_count) || 0,
-      acted: Boolean(summary?.acted),
-      canToggle: Boolean(summary?.acted) || summary?.can_act !== false
-    };
-  }
-
-  function getPostBookmarkState(post) {
-    const bookmarkId = Number(post?.bookmark_id);
-    return {
-      bookmarked: Boolean(post?.bookmarked),
-      bookmarkId: Number.isFinite(bookmarkId) ? bookmarkId : null
-    };
-  }
-
-  function getPostActionSummary(post, actionTypeId) {
-    if (!Array.isArray(post?.actions_summary)) {
-      return null;
-    }
-
-    return post.actions_summary.find((summary) => Number(summary?.id) === Number(actionTypeId)) || null;
-  }
-
-  async function handleLikeButtonClick(post, button) {
-    const likeState = getPostLikeState(post);
-    if (!likeState.canToggle) {
-      showPostActionFeedback(button, "不可用", true);
-      return;
-    }
-
-    await runPostAction(button, async () => {
-      const updatedPost = likeState.acted
-        ? await destroyPostLike(post)
-        : await createPostLike(post);
-      applyUpdatedPostToCurrentView(updatedPost);
-    });
-  }
-
-  async function handleCopyLinkButtonClick(post, button) {
-    try {
-      await writeClipboardText(buildPostPermalink(post));
-      showPostActionFeedback(button, "已复制");
-    } catch (error) {
-      showPostActionFeedback(button, error?.message || "复制失败", true);
-    }
-  }
-
-  async function handleBookmarkButtonClick(post, button) {
-    await runPostAction(button, async () => {
-      const bookmarkState = getPostBookmarkState(post);
-      const updatedPost = bookmarkState.bookmarked
-        ? await destroyPostBookmark(post, bookmarkState.bookmarkId)
-        : await createPostBookmark(post);
-      applyUpdatedPostToCurrentView(updatedPost);
-    });
-  }
-
-  async function runPostAction(button, action) {
-    if (!(button instanceof HTMLButtonElement) || button.disabled) {
-      return;
-    }
-
-    button.disabled = true;
-    button.classList.add("is-pending");
-
-    try {
-      await action();
-    } catch (error) {
-      showPostActionFeedback(button, error?.message || "操作失败", true);
-    } finally {
-      button.disabled = false;
-      button.classList.remove("is-pending");
-    }
-  }
-
-  function showPostActionFeedback(button, message, isError = false) {
-    if (!(button instanceof HTMLButtonElement)) {
-      return;
-    }
-
-    const label = button.querySelector(".ld-post-action-button-label");
-    if (!(label instanceof HTMLElement)) {
-      return;
-    }
-
-    window.clearTimeout(Number(button.dataset.feedbackTimer || 0));
-    const originalText = button.dataset.originalLabel ?? label.textContent ?? "";
-    button.dataset.originalLabel = originalText;
-    label.textContent = message || "";
-    button.classList.toggle("is-feedback-error", isError);
-    button.classList.remove("is-icon-only");
-
-    const timer = window.setTimeout(() => {
-      if (!button.isConnected) {
-        return;
-      }
-
-      label.textContent = button.dataset.originalLabel || "";
-      button.classList.toggle("is-icon-only", !label.textContent);
-      button.classList.remove("is-feedback-error");
-      button.dataset.feedbackTimer = "";
-    }, 1400);
-
-    button.dataset.feedbackTimer = String(timer);
-  }
-
-  function buildPostPermalink(post) {
-    const currentUrl = state.currentUrl || location.href;
-    const url = new URL(currentUrl, location.href);
-    const parsed = parseTopicPath(url.pathname, state.currentTopicIdHint);
-    url.pathname = parsed?.topicPath || stripTrailingSlash(url.pathname);
-    url.search = "";
-    url.hash = "";
-
-    if (Number.isFinite(post?.post_number) && post.post_number > 1) {
-      url.pathname = `${url.pathname}/${post.post_number}`;
-    }
-
-    return url.toString().replace(/\/$/, "");
-  }
-
-  async function writeClipboardText(text) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    textarea.style.pointerEvents = "none";
-    textarea.style.left = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.select();
-
-    try {
-      const copied = document.execCommand("copy");
-      if (!copied) {
-        throw new Error("复制失败");
-      }
-    } finally {
-      textarea.remove();
-    }
+    article.appendChild(actions);
+    return article;
   }
 
   function handleDrawerBodyScroll() {
     maybeLoadMorePosts();
+  }
+
+  function buildReactHeartIconSvg(isReacted) {
+    if (isReacted) {
+      return `<svg viewBox="0 0 24 24" focusable="false">
+          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/>
+        </svg>`;
+    }
+    return `<svg viewBox="0 0 24 24" fill="none" focusable="false">
+          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </svg>`;
   }
 
   function toggleReplyPanel() {
@@ -1567,17 +1738,227 @@
       return;
     }
 
+    if (!isOpen) {
+      stopReplyPanelDrag();
+    }
+
     state.replyPanel.hidden = !isOpen;
     forEachReplyTriggerButton((button) => {
       button.setAttribute("aria-expanded", String(isOpen));
     });
 
     if (!isOpen) {
+      clearReplyPanelPositionStyles();
       setReplyTarget(null);
       return;
     }
 
+    applyReplyPanelPosition();
     queueMicrotask(() => state.replyTextarea?.focus());
+  }
+
+  function startReplyPanelDrag(event) {
+    const target = event.target;
+    if (
+      event.button !== 0
+      || window.innerWidth <= 720
+      || !state.replyPanel
+      || state.replyPanel.hidden
+      || !state.replyPanelMain
+      || !state.replyPanelHead
+      || !(target instanceof Element)
+      || Boolean(target.closest("button, a, input, textarea, select, label"))
+    ) {
+      return;
+    }
+
+    const panelRect = state.replyPanel.getBoundingClientRect();
+    const containerRect = state.replyPanelMain.getBoundingClientRect();
+    if (panelRect.width <= 0 || panelRect.height <= 0 || containerRect.width <= 0 || containerRect.height <= 0) {
+      return;
+    }
+
+    const currentPosition = clampReplyPanelPosition({
+      left: panelRect.left - containerRect.left,
+      top: panelRect.top - containerRect.top
+    });
+    if (!currentPosition) {
+      return;
+    }
+
+    event.preventDefault();
+    state.isReplyPanelDragging = true;
+    state.replyPanelDragPointerId = event.pointerId;
+    state.replyPanelDragOffsetX = event.clientX - panelRect.left;
+    state.replyPanelDragOffsetY = event.clientY - panelRect.top;
+    state.replyPanelDragMoved = false;
+    state.replyPanelDragLastPosition = currentPosition;
+    document.body.classList.add("ld-reply-panel-dragging");
+    state.replyPanel.classList.add("is-dragging");
+    setReplyPanelInlinePosition(currentPosition);
+    state.replyPanelHead.setPointerCapture?.(event.pointerId);
+  }
+
+  function handleReplyPanelDragMove(event) {
+    if (
+      !state.isReplyPanelDragging
+      || event.pointerId !== state.replyPanelDragPointerId
+      || !state.replyPanelMain
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    const containerRect = state.replyPanelMain.getBoundingClientRect();
+    const nextPosition = clampReplyPanelPosition({
+      left: event.clientX - containerRect.left - state.replyPanelDragOffsetX,
+      top: event.clientY - containerRect.top - state.replyPanelDragOffsetY
+    });
+
+    if (!nextPosition || isSameReplyPanelPosition(nextPosition, state.replyPanelDragLastPosition)) {
+      return;
+    }
+
+    state.replyPanelDragMoved = true;
+    state.replyPanelDragLastPosition = nextPosition;
+    state.settings.replyPanelPosition = nextPosition;
+    setReplyPanelInlinePosition(nextPosition);
+  }
+
+  function stopReplyPanelDrag(event) {
+    if (!state.isReplyPanelDragging) {
+      return;
+    }
+
+    if (event?.pointerId !== undefined && event.pointerId !== state.replyPanelDragPointerId) {
+      return;
+    }
+
+    const shouldSave = state.replyPanelDragMoved;
+    state.isReplyPanelDragging = false;
+    document.body.classList.remove("ld-reply-panel-dragging");
+    state.replyPanel?.classList.remove("is-dragging");
+
+    if (
+      state.replyPanelDragPointerId !== null
+      && state.replyPanelHead?.hasPointerCapture?.(state.replyPanelDragPointerId)
+    ) {
+      state.replyPanelHead.releasePointerCapture(state.replyPanelDragPointerId);
+    }
+
+    state.replyPanelDragPointerId = null;
+    state.replyPanelDragOffsetX = 0;
+    state.replyPanelDragOffsetY = 0;
+    state.replyPanelDragLastPosition = null;
+    state.replyPanelDragMoved = false;
+
+    if (shouldSave) {
+      state.suppressReplyPanelClick = true;
+      saveSettings();
+      return;
+    }
+
+    applyReplyPanelPosition();
+  }
+
+  function applyReplyPanelPosition(shouldPersist = false) {
+    if (!state.replyPanel) {
+      return;
+    }
+
+    if (window.innerWidth <= 720 || state.replyPanel.hidden) {
+      clearReplyPanelPositionStyles();
+      return;
+    }
+
+    const position = clampReplyPanelPosition(state.settings.replyPanelPosition);
+    if (!position) {
+      clearReplyPanelPositionStyles();
+      return;
+    }
+
+    setReplyPanelInlinePosition(position);
+
+    if (!isSameReplyPanelPosition(position, state.settings.replyPanelPosition)) {
+      state.settings.replyPanelPosition = position;
+      if (shouldPersist) {
+        saveSettings();
+      }
+    }
+  }
+
+  function setReplyPanelInlinePosition(position) {
+    if (!state.replyPanel || !position) {
+      return;
+    }
+
+    state.replyPanel.style.left = `${position.left}px`;
+    state.replyPanel.style.top = `${position.top}px`;
+    state.replyPanel.style.right = "auto";
+    state.replyPanel.style.bottom = "auto";
+  }
+
+  function clearReplyPanelPositionStyles() {
+    if (!state.replyPanel) {
+      return;
+    }
+
+    state.replyPanel.style.removeProperty("left");
+    state.replyPanel.style.removeProperty("top");
+    state.replyPanel.style.removeProperty("right");
+    state.replyPanel.style.removeProperty("bottom");
+  }
+
+  function normalizeReplyPanelPosition(value) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    const left = Number(value.left);
+    const top = Number(value.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top)) {
+      return null;
+    }
+
+    return {
+      left: Math.round(left),
+      top: Math.round(top)
+    };
+  }
+
+  function clampReplyPanelPosition(position) {
+    const normalized = normalizeReplyPanelPosition(position);
+    if (!normalized || !state.replyPanel || !state.replyPanelMain || state.replyPanel.hidden) {
+      return normalized;
+    }
+
+    const horizontalInset = 14;
+    const verticalInset = 14;
+    const minTop = getReplyPanelDefaultTop();
+    const maxLeft = Math.max(horizontalInset, state.replyPanelMain.clientWidth - state.replyPanel.offsetWidth - horizontalInset);
+    const maxTop = Math.max(minTop, state.replyPanelMain.clientHeight - state.replyPanel.offsetHeight - verticalInset);
+
+    return {
+      left: clampNumber(normalized.left, horizontalInset, maxLeft),
+      top: clampNumber(normalized.top, minTop, maxTop)
+    };
+  }
+
+  function isSameReplyPanelPosition(a, b) {
+    return Boolean(a && b && a.left === b.left && a.top === b.top);
+  }
+
+  function getReplyPanelDefaultTop() {
+    return Math.max(16, (state.header?.offsetHeight || 0) + 16);
+  }
+
+  function clampNumber(value, min, max) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return min;
+    }
+
+    return Math.min(Math.max(Math.round(numeric), min), max);
   }
 
   function setReplyTarget(post) {
@@ -1946,7 +2327,12 @@
 
       state.replyTextarea.value = "";
       state.replyStatus.textContent = "回复已发送。";
-      appendCreatedReplyToCurrentTopic(createdPost);
+      if (state.root?.classList.contains(IFRAME_MODE_CLASS)) {
+        refreshIframeAfterCreatedReply(createdPost);
+        showToast("回复已发送", "success");
+      } else {
+        appendCreatedReplyToCurrentTopic(createdPost);
+      }
       setReplyPanelOpen(false);
     } catch (error) {
       if (controller.signal.aborted) {
@@ -2030,10 +2416,12 @@
 
       state.isLoadingMorePosts = false;
       state.loadMoreError = "";
-      renderTopic(nextTopic, currentUrl, state.currentFallbackTitle, state.currentResolvedTargetPostNumber, {
-        targetSpec: state.currentTargetSpec,
-        preserveScrollTop: previousScrollTop
-      });
+      if (!appendLoadedPostsIncrementally(nextTopic, posts, previousScrollTop)) {
+        renderTopic(nextTopic, currentUrl, state.currentFallbackTitle, state.currentResolvedTargetPostNumber, {
+          targetSpec: state.currentTargetSpec,
+          preserveScrollTop: previousScrollTop
+        });
+      }
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -2053,6 +2441,13 @@
     if (state.loadMoreAbortController) {
       state.loadMoreAbortController.abort();
       state.loadMoreAbortController = null;
+    }
+  }
+
+  function cancelDirectRepliesRequest() {
+    if (state.directRepliesAbortController) {
+      state.directRepliesAbortController.abort();
+      state.directRepliesAbortController = null;
     }
   }
 
@@ -2313,7 +2708,7 @@
     cancelLoadMoreRequest();
     cancelReplyRequest();
 
-    state.currentTopic = null;
+    state.currentTopic = buildIframeReplyTopic(topicUrl, fallbackTitle);
     state.currentLatestRepliesTopic = null;
     state.currentTargetSpec = null;
     state.currentResolvedTargetPostNumber = null;
@@ -2346,6 +2741,35 @@
 
     container.append(iframe);
     state.content.replaceChildren(container);
+  }
+
+  function buildIframeReplyTopic(topicUrl, fallbackTitle) {
+    const topicId = getTopicIdFromUrl(topicUrl, state.currentTopicIdHint);
+    if (!Number.isFinite(topicId)) {
+      return null;
+    }
+
+    return {
+      id: Number(topicId),
+      title: fallbackTitle || state.currentFallbackTitle || "当前主题",
+      __sidePeekIframeShell: true
+    };
+  }
+
+  function refreshIframeAfterCreatedReply(createdPost) {
+    const iframe = state.content?.querySelector(".ld-topic-iframe");
+    if (!(iframe instanceof HTMLIFrameElement)) {
+      return;
+    }
+
+    const topicId = Number(createdPost?.topic_id || state.currentTopic?.id || state.currentTopicIdHint);
+    const postNumber = Number(createdPost?.post_number);
+
+    if (Number.isFinite(topicId) && Number.isFinite(postNumber)) {
+      iframe.src = `${location.origin}/t/${topicId}/${postNumber}`;
+    } else if (state.currentUrl) {
+      iframe.src = state.currentUrl;
+    }
   }
 
   function setIframeModeEnabled(enabled) {
@@ -2401,6 +2825,11 @@
       return;
     }
 
+    if (state.root?.classList.contains(IFRAME_MODE_CLASS)) {
+      loadTopic(state.currentUrl, state.currentFallbackTitle, state.currentTopicIdHint);
+      return;
+    }
+
     if (state.currentTopic) {
       const targetSpec = getTopicTargetSpec(state.currentUrl, state.currentTopicIdHint);
       const needsTargetReload = shouldFetchTargetedTopic(state.currentTopic, targetSpec)
@@ -2451,9 +2880,13 @@
     }
 
     const shouldShow = canRefreshLatestReplies();
+    const isRefreshing = state.isRefreshingLatestReplies;
     state.latestRepliesRefreshButton.hidden = !shouldShow;
-    state.latestRepliesRefreshButton.disabled = !shouldShow || state.isRefreshingLatestReplies || Boolean(state.abortController);
-    state.latestRepliesRefreshButton.textContent = state.isRefreshingLatestReplies ? "刷新中..." : "刷新";
+    state.latestRepliesRefreshButton.disabled = !shouldShow || isRefreshing;
+    state.latestRepliesRefreshButton.classList.toggle("is-refreshing", isRefreshing);
+    const label = isRefreshing ? "刷新中..." : "刷新最新回复";
+    state.latestRepliesRefreshButton.setAttribute("data-tooltip", label);
+    state.latestRepliesRefreshButton.setAttribute("aria-label", label);
   }
 
   function shouldLoadLatestRepliesTopic(topic, targetSpec) {
@@ -2713,6 +3146,509 @@
     return data;
   }
 
+  async function populateReactionsPopover(popoverEl, post, reactBtn) {
+    const available = await fetchAvailableReactions();
+    const reactions = Array.isArray(post.reactions) ? post.reactions : [];
+
+    popoverEl.replaceChildren();
+
+    for (const r of available) {
+      const existing = reactions.find((rx) => rx.id === r.id);
+      const count = existing?.count || 0;
+      const isActive = existing?.reacted === true
+        || (r.id === "heart" && (post.actions_summary?.find((a) => a.id === 2)?.acted === true));
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ld-reaction-btn" + (isActive ? " ld-reaction-btn--active" : "");
+      btn.setAttribute("aria-label", r.id + (count > 0 ? ` (${count})` : ""));
+      btn.title = r.id;
+
+      const img = document.createElement("img");
+      img.alt = `:${r.id}:`;
+      img.loading = "lazy";
+      img.src = buildReactionEmojiSrc(r.id);
+      img.onerror = () => {
+        img.onerror = null;
+        btn.hidden = true;
+        btn.style.display = "none";
+      };
+
+      const countEl = document.createElement("span");
+      countEl.className = "ld-reaction-btn-count";
+      countEl.textContent = count > 0 ? String(count) : "";
+
+      btn.append(img, countEl);
+      btn.addEventListener("click", () => {
+        popoverEl.setAttribute("hidden", "");
+        handlePostReact(reactBtn, post, r.id, popoverEl);
+      });
+
+      popoverEl.appendChild(btn);
+    }
+  }
+
+  async function fetchAvailableReactions() {
+    if (state.availableReactions) {
+      return state.availableReactions;
+    }
+
+    // 1. Read from Discourse's live Ember app (most reliable — TM @grant none runs in page context)
+    try {
+      const siteSettings = PAGE_WINDOW.Discourse?.SiteSettings;
+      if (siteSettings) {
+        const enabledStr = siteSettings.discourse_reactions_enabled_reactions;
+        if (typeof enabledStr === "string" && enabledStr.trim()) {
+          const ids = enabledStr.split("|").map((s) => s.trim()).filter(Boolean);
+          if (ids.length > 0) {
+            state.availableReactions = ids.map((id) => ({ id, type: "emoji" }));
+            return state.availableReactions;
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 2. Try API endpoint (works when authenticated and endpoint exists)
+    try {
+      const res = await fetch(`${location.origin}/discourse-reactions/custom-reactions`, {
+        credentials: "include",
+        headers: { Accept: "application/json" }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length) {
+          state.availableReactions = data;
+          return state.availableReactions;
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 3. Reasonable fallback matching Discourse defaults
+    state.availableReactions = [
+      { id: "heart", type: "emoji" },
+      { id: "+1", type: "emoji" },
+      { id: "laughing", type: "emoji" },
+      { id: "open_mouth", type: "emoji" },
+      { id: "cry", type: "emoji" },
+      { id: "angry", type: "emoji" },
+      { id: "tada", type: "emoji" }
+    ];
+    return state.availableReactions;
+  }
+
+  const REACTION_URL_CACHE = {};
+
+  function buildReactionEmojiSrc(reactionId) {
+    if (REACTION_URL_CACHE[reactionId]) {
+      return REACTION_URL_CACHE[reactionId];
+    }
+
+    const set = (url) => {
+      if (url) REACTION_URL_CACHE[reactionId] = url;
+      return url;
+    };
+
+    // 1. Discourse AMD module for standard emojis (heart, +1, laughing, etc.)
+    try {
+      for (const loaderKey of ["require", "requirejs"]) {
+        const loader = PAGE_WINDOW[loaderKey];
+        if (typeof loader !== "function") continue;
+        for (const modPath of ["discourse/lib/emoji", "discourse-common/utils/emoji"]) {
+          try {
+            const mod = loader(modPath);
+            if (!mod) continue;
+            const buildFn = mod.buildEmojiUrl || mod.default?.buildEmojiUrl
+              || mod.emojiUrlFor || mod.default?.emojiUrlFor;
+            if (typeof buildFn === "function") {
+              const url = buildFn(reactionId, PAGE_WINDOW.Discourse?.SiteSettings);
+              if (url) return set(url);
+            }
+          } catch { /* ignore */ }
+        }
+        break;
+      }
+    } catch { /* ignore */ }
+
+    // 2. Standard emoji path fallback
+    const emojiSet = PAGE_WINDOW.Discourse?.SiteSettings?.emoji_set || "twitter";
+    return `/images/emoji/${emojiSet}/${encodeURIComponent(reactionId)}.png`;
+  }
+
+  function showToast(message, type = "info", duration = 2200) {
+    if (!state.toastStack || !message) {
+      return;
+    }
+
+    const toast = document.createElement("div");
+    toast.className = "ld-toast";
+    toast.dataset.type = type;
+    toast.setAttribute("role", type === "error" ? "alert" : "status");
+    toast.textContent = String(message);
+    state.toastStack.appendChild(toast);
+
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
+    const remove = () => {
+      toast.classList.remove("is-visible");
+      window.setTimeout(() => toast.remove(), 180);
+    };
+    window.setTimeout(remove, Math.max(900, Number(duration) || 2200));
+  }
+
+  async function handlePostReact(reactBtn, post, reactionId, popoverEl) {
+    if (reactBtn.disabled) {
+      return;
+    }
+
+    reactBtn.disabled = true;
+
+    try {
+      const reactions = Array.isArray(post.reactions) ? post.reactions : [];
+      const existing = reactions.find((r) => r.id === reactionId);
+      const wasReacted = existing?.reacted === true;
+      const legacyLikeAction = !reactions.length && Array.isArray(post.actions_summary)
+        ? post.actions_summary.find((a) => a.id === 2)
+        : null;
+      const wasLegacyLiked = legacyLikeAction?.acted === true;
+      const isUndo = wasReacted || (reactionId === "heart" && wasLegacyLiked);
+
+      const updated = await performToggleReaction(post.id, reactionId);
+
+      if (Array.isArray(updated?.reactions)) {
+        post.reactions = updated.reactions;
+        post.like_count = updated.reactions.reduce((sum, r) => sum + (r.count || 0), 0);
+        if (legacyLikeAction) {
+          legacyLikeAction.acted = !isUndo;
+          legacyLikeAction.count = Math.max(0, (legacyLikeAction.count || 0) + (isUndo ? -1 : 1));
+        }
+      } else {
+        if (!Array.isArray(post.reactions)) {
+          post.reactions = [];
+        }
+        if (isUndo) {
+          if (existing) {
+            existing.reacted = false;
+            existing.count = Math.max(0, (existing.count || 1) - 1);
+          }
+        } else {
+          if (existing) {
+            existing.reacted = true;
+            existing.count = (existing.count || 0) + 1;
+          } else {
+            post.reactions.push({ id: reactionId, type: "emoji", count: 1, reacted: true });
+          }
+        }
+        post.like_count = post.reactions.reduce((sum, r) => sum + (r.count || 0), 0);
+        if (legacyLikeAction) {
+          legacyLikeAction.acted = !wasLegacyLiked;
+          legacyLikeAction.count = Math.max(0, (legacyLikeAction.count || 0) + (isUndo ? -1 : 1));
+        }
+      }
+
+      let nowReacted = post.reactions?.some((r) => r.reacted) || false;
+      if (reactionId === "heart") {
+        const heartReacted = post.reactions?.some((r) => r.id === "heart" && r.reacted === true) || false;
+        const heartActionReacted = Array.isArray(post.actions_summary)
+          ? post.actions_summary.find((a) => a.id === 2)?.acted === true
+          : false;
+        // Some APIs return reaction counts without reliable `reacted`; heart toggle result is authoritative.
+        nowReacted = heartReacted || heartActionReacted || !isUndo;
+      }
+      const newCount = post.like_count || 0;
+
+      reactBtn.classList.toggle("ld-post-react-btn--reacted", nowReacted);
+      reactBtn.setAttribute("aria-label", nowReacted ? "取消反应" : "添加反应");
+      const iconEl = reactBtn.querySelector(".ld-post-react-btn-icon");
+      if (iconEl) {
+        iconEl.innerHTML = buildReactHeartIconSvg(nowReacted);
+      }
+
+      let countEl = reactBtn.querySelector(".ld-post-react-count");
+      if (newCount > 0) {
+        if (countEl) {
+          countEl.textContent = String(newCount);
+        } else {
+          countEl = document.createElement("span");
+          countEl.className = "ld-post-react-count";
+          countEl.textContent = String(newCount);
+          reactBtn.appendChild(countEl);
+        }
+      } else if (countEl) {
+        countEl.remove();
+      }
+
+      if (popoverEl && !popoverEl.hasAttribute("hidden")) {
+        delete popoverEl.dataset.loaded;
+        populateReactionsPopover(popoverEl, post, reactBtn);
+      } else if (popoverEl) {
+        delete popoverEl.dataset.loaded;
+      }
+    } catch (error) {
+      showToast(`反应失败：${error?.message || "请求未完成"}`, "error");
+    } finally {
+      reactBtn.disabled = false;
+    }
+  }
+
+  async function performToggleReaction(postId, reactionId) {
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      throw new Error("未找到 CSRF 令牌");
+    }
+
+    const response = await fetch(
+      `${location.origin}/discourse-reactions/posts/${postId}/custom-reactions/${encodeURIComponent(reactionId)}/toggle`,
+      {
+        method: "PUT",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRF-Token": csrfToken
+        }
+      }
+    );
+
+    if (!response.ok) {
+      if (reactionId === "heart") {
+        return performLegacyLikeToggle(postId);
+      }
+      const data = await response.json().catch(() => null);
+      throw new Error(
+        Array.isArray(data?.errors) && data.errors.length
+          ? data.errors.join("；")
+          : `反应失败：${response.status}`
+      );
+    }
+
+    return response.json().catch(() => null);
+  }
+
+  async function performLegacyLikeToggle(postId) {
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      throw new Error("未找到 CSRF 令牌");
+    }
+
+    const likeRes = await fetch(`${location.origin}/post_actions`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": csrfToken
+      },
+      body: new URLSearchParams({ id: String(postId), post_action_type_id: "2", flag_topic: "false" })
+    });
+
+    if (likeRes.ok) {
+      return null;
+    }
+
+    const unlikeRes = await fetch(
+      `${location.origin}/post_actions/${postId}?post_action_type_id=2`,
+      {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRF-Token": csrfToken
+        }
+      }
+    );
+
+    if (!unlikeRes.ok) {
+      throw new Error(`操作失败：${unlikeRes.status}`);
+    }
+
+    return null;
+  }
+
+  async function handleCopyPostLink(btn, post) {
+    const topicId = state.currentTopic?.id || post.topic_id;
+    const topicSlug = state.currentTopic?.slug || "";
+    const postNum = post.post_number;
+
+    const url = topicSlug
+      ? `${location.origin}/t/${topicSlug}/${topicId}/${postNum}`
+      : `${location.origin}/t/topic/${topicId}/${postNum}`;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      const origHTML = btn.innerHTML;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>`;
+      setTimeout(() => {
+        btn.innerHTML = origHTML;
+      }, 1500);
+      showToast("帖子链接已复制", "success", 1500);
+    } catch (error) {
+      showToast(`复制失败：${error?.message || "浏览器未授权剪贴板"}`, "error");
+    }
+  }
+
+  async function handlePostBookmark(btn, post) {
+    if (btn.disabled) {
+      return;
+    }
+
+    btn.disabled = true;
+    const wasBookmarked = post.bookmarked === true;
+
+    try {
+      if (wasBookmarked && post.bookmark_id) {
+        await performDeleteBookmark(post.bookmark_id);
+        post.bookmarked = false;
+        post.bookmark_id = null;
+      } else {
+        const result = await performCreateBookmark(post.id);
+        post.bookmarked = true;
+        if (result?.id) {
+          post.bookmark_id = result.id;
+        }
+      }
+
+      const nowBookmarked = post.bookmarked === true;
+      showToast(nowBookmarked ? "已添加书签" : "已取消书签", "success");
+      btn.className = "ld-post-icon-btn" + (nowBookmarked ? " ld-post-icon-btn--bookmarked" : "");
+      btn.setAttribute("aria-label", nowBookmarked ? "取消书签" : "添加书签");
+      btn.innerHTML = nowBookmarked
+        ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`;
+    } catch (error) {
+      showToast(`书签操作失败：${error?.message || "请求未完成"}`, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function performCreateBookmark(postId) {
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      throw new Error("未找到 CSRF 令牌");
+    }
+
+    const response = await fetch(`${location.origin}/bookmarks`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": csrfToken
+      },
+      body: JSON.stringify({ bookmarkable_type: "Post", bookmarkable_id: postId })
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.errors?.join("；") || `书签失败：${response.status}`);
+    }
+
+    return response.json().catch(() => null);
+  }
+
+  async function performDeleteBookmark(bookmarkId) {
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      throw new Error("未找到 CSRF 令牌");
+    }
+
+    const response = await fetch(`${location.origin}/bookmarks/${bookmarkId}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": csrfToken
+      }
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.errors?.join("；") || `取消书签失败：${response.status}`);
+    }
+  }
+
+  function buildFlagPopover(post) {
+    const popover = document.createElement("div");
+    popover.className = "ld-flag-popover";
+    popover.setAttribute("role", "menu");
+
+    const flagOptions = [
+      {
+        id: 3,
+        label: "垃圾信息",
+        description: "此帖子是广告或垃圾内容",
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`
+      },
+      {
+        id: 4,
+        label: "不当内容",
+        description: "此帖子包含令人反感的内容",
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
+      },
+      {
+        id: 7,
+        label: "需要版主关注",
+        description: "需要版主处理的问题",
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`
+      }
+    ];
+
+    for (const opt of flagOptions) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ld-flag-option";
+      btn.setAttribute("role", "menuitem");
+      btn.title = opt.description;
+      btn.innerHTML = `${opt.icon}<span>${opt.label}</span>`;
+      btn.addEventListener("click", () => handleFlagPost(post.id, opt.id, popover));
+      popover.appendChild(btn);
+    }
+
+    return popover;
+  }
+
+  async function handleFlagPost(postId, actionTypeId, popoverEl) {
+    popoverEl.setAttribute("hidden", "");
+
+    try {
+      await performFlagPost(postId, actionTypeId);
+      showToast("举报已提交", "success");
+    } catch (error) {
+      showToast(`举报失败：${error?.message || "请求未完成"}`, "error");
+    }
+  }
+
+  async function performFlagPost(postId, actionTypeId) {
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      throw new Error("未找到 CSRF 令牌");
+    }
+
+    const response = await fetch(`${location.origin}/post_actions`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-Token": csrfToken
+      },
+      body: new URLSearchParams({
+        id: String(postId),
+        post_action_type_id: String(actionTypeId),
+        flag_topic: "false"
+      })
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.errors?.join("；") || `举报失败：${response.status}`);
+    }
+  }
+
   async function createComposerUpload(file, signal, options = {}) {
     const csrfToken = getCsrfToken();
     if (!csrfToken) {
@@ -2795,170 +3731,13 @@
     return /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(String(fileName || ""));
   }
 
-  async function createPostLike(post) {
-    const response = await fetch(`${location.origin}/post_actions.json`, {
-      method: "POST",
-      credentials: "include",
-      headers: buildAuthenticatedFormHeaders(),
-      body: buildFormBody({
-        id: post?.id,
-        post_action_type_id: POST_ACTION_TYPE_IDS.like
-      })
+  function closeAllPopovers() {
+    state.root?.querySelectorAll(".ld-reactions-popover, .ld-flag-popover, .ld-post-replies-popover").forEach((p) => {
+      p.setAttribute("hidden", "");
     });
-
-    return parsePostActionResponse(response);
-  }
-
-  async function destroyPostLike(post) {
-    const url = new URL(`${location.origin}/post_actions/${post?.id}.json`);
-    url.searchParams.set("post_action_type_id", String(POST_ACTION_TYPE_IDS.like));
-
-    const response = await fetch(url.toString(), {
-      method: "DELETE",
-      credentials: "include",
-      headers: buildAuthenticatedFormHeaders()
+    state.root?.querySelectorAll(".ld-post-info-item--replies-trigger").forEach((btn) => {
+      btn.setAttribute("aria-expanded", "false");
     });
-
-    return parsePostActionResponse(response);
-  }
-
-  async function createPostBookmark(post) {
-    const response = await fetch(`${location.origin}/bookmarks.json`, {
-      method: "POST",
-      credentials: "include",
-      headers: buildAuthenticatedFormHeaders(),
-      body: buildFormBody({
-        bookmarkable_id: post?.id,
-        bookmarkable_type: "Post"
-      })
-    });
-
-    await parseMutationResponse(response);
-    return refreshSinglePostState(post);
-  }
-
-  async function destroyPostBookmark(post, bookmarkId) {
-    if (!Number.isFinite(bookmarkId)) {
-      throw new Error("未找到收藏记录，请刷新后重试");
-    }
-
-    const response = await fetch(`${location.origin}/bookmarks/${bookmarkId}.json`, {
-      method: "DELETE",
-      credentials: "include",
-      headers: buildAuthenticatedFormHeaders()
-    });
-
-    await parseMutationResponse(response);
-    return refreshSinglePostState(post);
-  }
-
-  async function refreshSinglePostState(post) {
-    const posts = await fetchTopicPostsBatch(state.currentUrl, [post?.id], undefined, state.currentTopicIdHint);
-    const refreshedPost = posts.find((item) => item?.id === post?.id || item?.post_number === post?.post_number);
-    if (!refreshedPost) {
-      throw new Error("刷新帖子状态失败");
-    }
-    return refreshedPost;
-  }
-
-  function buildAuthenticatedFormHeaders() {
-    const csrfToken = getCsrfToken();
-    if (!csrfToken) {
-      throw new Error("未找到登录令牌，请刷新页面后重试");
-    }
-
-    return {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "X-Requested-With": "XMLHttpRequest",
-      "X-CSRF-Token": csrfToken
-    };
-  }
-
-  function buildFormBody(values) {
-    const body = new URLSearchParams();
-    for (const [key, value] of Object.entries(values || {})) {
-      if (value === null || value === undefined || value === "") {
-        continue;
-      }
-
-      body.set(key, String(value));
-    }
-    return body;
-  }
-
-  async function parsePostActionResponse(response) {
-    const data = await parseMutationResponse(response);
-    if (!data || typeof data !== "object" || !Number.isFinite(Number(data.id))) {
-      throw new Error("帖子状态返回异常");
-    }
-
-    return data;
-  }
-
-  async function parseMutationResponse(response) {
-    const contentType = response.headers.get("content-type") || "";
-    const data = contentType.includes("json")
-      ? await response.json()
-      : null;
-
-    if (!response.ok) {
-      const message = Array.isArray(data?.errors) && data.errors.length > 0
-        ? data.errors.join("；")
-        : (data?.error || data?.message || `Unexpected response: ${response.status}`);
-      throw new Error(message);
-    }
-
-    return data;
-  }
-
-  function applyUpdatedPostToCurrentView(updatedPost) {
-    if (!updatedPost || !state.currentTopic) {
-      return;
-    }
-
-    const previousScrollTop = state.drawerBody?.scrollTop || 0;
-    const nextTopic = replaceTopicPost(state.currentTopic, updatedPost);
-    const nextLatestRepliesTopic = replaceTopicPost(state.currentLatestRepliesTopic, updatedPost);
-
-    renderTopic(nextTopic, state.currentUrl, state.currentFallbackTitle, state.currentResolvedTargetPostNumber, {
-      latestRepliesTopic: nextLatestRepliesTopic,
-      targetSpec: state.currentTargetSpec,
-      preserveScrollTop: previousScrollTop
-    });
-  }
-
-  function replaceTopicPost(topic, nextPost) {
-    if (!topic || !nextPost) {
-      return topic;
-    }
-
-    const posts = topic?.post_stream?.posts || [];
-    const nextPostId = Number(nextPost.id);
-    const nextPostNumber = Number(nextPost.post_number);
-    let replaced = false;
-    const nextPosts = posts.map((post) => {
-      const sameId = Number.isFinite(nextPostId) && Number(post?.id) === nextPostId;
-      const samePostNumber = Number.isFinite(nextPostNumber) && Number(post?.post_number) === nextPostNumber;
-      if (sameId || samePostNumber) {
-        replaced = true;
-        return nextPost;
-      }
-      return post;
-    });
-
-    if (!replaced) {
-      nextPosts.push(nextPost);
-      nextPosts.sort((left, right) => Number(left?.post_number || 0) - Number(right?.post_number || 0));
-    }
-
-    return {
-      ...topic,
-      post_stream: {
-        ...(topic.post_stream || {}),
-        posts: nextPosts
-      }
-    };
   }
 
   function getCsrfToken() {
@@ -3264,6 +4043,29 @@
     return getTopicTargetSpec(topicUrl, topicIdHint)?.targetPostNumber || null;
   }
 
+  function navigateToPost(postNumber) {
+    const numericPostNumber = Number(postNumber);
+    if (!Number.isFinite(numericPostNumber)) {
+      return false;
+    }
+
+    const target = state.content?.querySelector(`.ld-post-card[data-post-number="${numericPostNumber}"]`);
+    if (target) {
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+      return true;
+    }
+
+    const url = buildAbsoluteTopicPostUrl(state.currentTopic, numericPostNumber, state.currentTopicIdHint);
+    if (url) {
+      showToast(`第 ${numericPostNumber} 楼当前未加载，已在新标签打开`, "info");
+      window.open(url, "_blank", "noopener,noreferrer");
+      return true;
+    }
+
+    showToast(`暂时无法定位第 ${numericPostNumber} 楼`, "error");
+    return false;
+  }
+
   function scrollTopicViewToTargetPost(targetPostNumber) {
     if (!targetPostNumber) {
       return;
@@ -3409,6 +4211,486 @@
     return parts.join(" · ");
   }
 
+  function buildReplyToTab(post) {
+    const replyPostNum = post.reply_to_post_number;
+    if (!Number.isFinite(replyPostNum) || replyPostNum === post.post_number) {
+      return null;
+    }
+
+    const replyUser = post.reply_to_user;
+    const displayName = replyUser?.username ? `@${replyUser.username}` : `第 ${replyPostNum} 楼`;
+
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "ld-reply-to-tab";
+    tab.setAttribute("aria-label", `跳转到被回复的帖子：${displayName}`);
+    tab.title = `跳转到第 ${replyPostNum} 楼`;
+
+    const icon = document.createElement("span");
+    icon.className = "ld-reply-to-tab-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`;
+
+    const label = document.createElement("span");
+    label.className = "ld-reply-to-tab-label";
+    label.textContent = displayName;
+
+    tab.append(icon, label);
+    tab.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigateToPost(replyPostNum);
+    });
+
+    return tab;
+  }
+
+  function excerptFromCookedForReplyPreview(cooked, maxLen) {
+    const cap = typeof maxLen === "number" && maxLen > 8 ? maxLen : 80;
+    if (!cooked || typeof cooked !== "string") {
+      return "";
+    }
+
+    try {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = cooked;
+      const text = (tmp.textContent || "").replace(/\s+/g, " ").trim();
+      if (text.length <= cap) {
+        return text;
+      }
+
+      return `${text.slice(0, cap - 1).trimEnd()}…`;
+    } catch {
+      return "";
+    }
+  }
+
+  function getDirectRepliesToPostNumber(topic, parentPostNumber) {
+    if (!Number.isFinite(parentPostNumber) || !topic?.post_stream?.posts) {
+      return [];
+    }
+
+    return topic.post_stream.posts
+      .filter((p) => p && typeof p === "object"
+        && Number.isFinite(p.reply_to_post_number)
+        && p.reply_to_post_number === parentPostNumber)
+      .slice()
+      .sort((a, b) => (Number(a.post_number) || 0) - (Number(b.post_number) || 0));
+  }
+
+  function getKnownDirectReplies(topic, parentPostNumber) {
+    const merged = new Map();
+    for (const post of getDirectRepliesToPostNumber(topic, parentPostNumber)) {
+      if (Number.isFinite(post?.post_number)) {
+        merged.set(post.post_number, post);
+      }
+    }
+    for (const post of state.directReplyCache.get(parentPostNumber) || []) {
+      if (Number.isFinite(post?.post_number) && !merged.has(post.post_number)) {
+        merged.set(post.post_number, post);
+      }
+    }
+    return Array.from(merged.values()).sort((a, b) => (Number(a.post_number) || 0) - (Number(b.post_number) || 0));
+  }
+
+  function buildAbsoluteTopicPostUrl(topic, postNumber, topicIdHint = null) {
+    const topicId = Number(topic?.id ?? topicIdHint);
+    const pn = Number(postNumber);
+    if (!Number.isFinite(topicId) || !Number.isFinite(pn)) {
+      return "";
+    }
+
+    const slug = typeof topic?.slug === "string" ? topic.slug.trim() : "";
+    if (slug) {
+      return `${location.origin}/t/${slug}/${topicId}/${pn}`;
+    }
+
+    return `${location.origin}/t/topic/${topicId}/${pn}`;
+  }
+
+  function buildPostReplyPreviewRow(replyPost) {
+    const row = document.createElement("div");
+    row.className = "ld-post-reply-preview-row";
+
+    const num = replyPost.post_number;
+    const user = replyPost.username ? `@${replyPost.username}` : "";
+    const snippet = excerptFromCookedForReplyPreview(replyPost.cooked, 96);
+    const metaLine = [user, snippet].filter(Boolean).join(" · ") || "（无预览）";
+
+    const jumpBtn = document.createElement("button");
+    jumpBtn.type = "button";
+    jumpBtn.className = "ld-post-reply-preview-jump";
+    jumpBtn.setAttribute(
+      "aria-label",
+      Number.isFinite(num) ? `跳转到第 ${num} 楼（抽屉内无该楼时新标签打开）` : "跳转到该回复"
+    );
+
+    const numSpan = document.createElement("span");
+    numSpan.className = "ld-post-reply-preview-num";
+    numSpan.textContent = Number.isFinite(num) ? `#${num}` : "#?";
+
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "ld-post-reply-preview-meta";
+    metaSpan.textContent = metaLine;
+
+    jumpBtn.append(numSpan, metaSpan);
+    jumpBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAllPopovers();
+      if (!Number.isFinite(num)) {
+        return;
+      }
+
+      navigateToPost(num);
+    });
+
+    row.appendChild(jumpBtn);
+    return row;
+  }
+
+  function canEagerLoadMissingDirectReplies() {
+    if (!state.currentTopic) {
+      return false;
+    }
+
+    if (state.settings.postMode === "first") {
+      return false;
+    }
+
+    if (state.settings.replyOrder === "latestFirst") {
+      return false;
+    }
+
+    if (state.currentTargetSpec?.hasTarget) {
+      return false;
+    }
+
+    return hasMoreTopicPosts(state.currentTopic);
+  }
+
+  async function waitForTopicLoadMoreIdle(maxWaitMs = 12000) {
+    const deadline = Date.now() + maxWaitMs;
+    while (state.isLoadingMorePosts && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+  }
+
+  async function fallbackSequentialDirectRepliesLoad(parentPostNumber, maxBatches = DIRECT_REPLIES_FALLBACK_BATCHES) {
+    if (!Number.isFinite(parentPostNumber)) {
+      return;
+    }
+
+    let batches = 0;
+    while (batches < maxBatches) {
+      if (getDirectRepliesToPostNumber(state.currentTopic, parentPostNumber).length > 0) {
+        return;
+      }
+
+      if (!canEagerLoadMissingDirectReplies()) {
+        return;
+      }
+
+      await waitForTopicLoadMoreIdle();
+
+      if (!canEagerLoadMissingDirectReplies()) {
+        return;
+      }
+
+      const loadedBefore = getLoadedTopicPostIds(state.currentTopic).length;
+      await loadMorePosts();
+      batches += 1;
+
+      const loadedAfter = getLoadedTopicPostIds(state.currentTopic).length;
+      if (loadedAfter <= loadedBefore) {
+        return;
+      }
+    }
+  }
+
+  async function ensureDirectRepliesLoadedForPopover(parentPostNumber, maxStreamBatches = DIRECT_REPLIES_MAX_BATCHES) {
+    if (!Number.isFinite(parentPostNumber) || !state.currentUrl || !state.currentTopic) {
+      return;
+    }
+
+    const urlAtStart = state.currentUrl;
+    let topic = state.currentTopic;
+    const parentFromTopic = (topic.post_stream?.posts || []).find((p) => p?.post_number === parentPostNumber);
+    if (!parentFromTopic || !Number.isFinite(parentFromTopic.id)) {
+      await fallbackSequentialDirectRepliesLoad(parentPostNumber);
+      return;
+    }
+
+    const expected = typeof parentFromTopic.reply_count === "number" ? parentFromTopic.reply_count : 0;
+    if (expected <= 0 || getKnownDirectReplies(topic, parentPostNumber).length >= expected) {
+      return;
+    }
+
+    cancelDirectRepliesRequest();
+    const controller = new AbortController();
+    state.directRepliesAbortController = controller;
+    const signal = controller.signal;
+
+    try {
+      const totalPosts = Number(topic.posts_count || 0);
+      const rawStream = topic?.post_stream?.stream;
+      const streamLen = Array.isArray(rawStream) ? rawStream.length : 0;
+      const needsStreamHydrate = streamLen === 0 || (totalPosts > 0 && streamLen < totalPosts);
+
+      if (needsStreamHydrate) {
+        const freshMeta = await fetchTrackedTopicJson(state.currentUrl, signal, state.currentTopicIdHint, {
+          canonical: true,
+          trackVisit: false
+        });
+        if (signal.aborted || state.currentUrl !== urlAtStart) {
+          return;
+        }
+        topic = mergeTopicPreviewData(topic, {
+          posts_count: freshMeta.posts_count,
+          post_stream: { stream: freshMeta.post_stream?.stream || [], posts: [] }
+        });
+      }
+
+      const stream = getTopicStreamIds(topic);
+      const parentIndex = stream.indexOf(parentFromTopic.id);
+      if (parentIndex === -1) {
+        await fallbackSequentialDirectRepliesLoad(parentPostNumber);
+        return;
+      }
+
+      const loadedIds = new Set(getLoadedTopicPostIds(topic));
+      const pending = stream.slice(parentIndex + 1).filter((id) => !loadedIds.has(id));
+      let batches = 0;
+
+      while (pending.length > 0 && batches < maxStreamBatches) {
+        if (signal.aborted || state.currentUrl !== urlAtStart) {
+          return;
+        }
+
+        if (getDirectRepliesToPostNumber(topic, parentPostNumber).length >= expected) {
+          break;
+        }
+
+        const chunk = pending.splice(0, LOAD_MORE_BATCH_SIZE);
+        const posts = await fetchTopicPostsBatch(state.currentUrl, chunk, signal, state.currentTopicIdHint);
+        if (signal.aborted || state.currentUrl !== urlAtStart || !posts.length) {
+          return;
+        }
+
+        topic = mergeTopicPreviewData(topic, { post_stream: { posts } });
+        batches += 1;
+      }
+
+      const directReplies = getDirectRepliesToPostNumber(topic, parentPostNumber);
+      if (directReplies.length) {
+        state.directReplyCache.set(parentPostNumber, directReplies);
+      }
+
+      if (directReplies.length < expected && pending.length > 0) {
+        showToast(`已限制直接回复扫描范围（最多 ${maxStreamBatches * LOAD_MORE_BATCH_SIZE} 条），更多内容请打开原帖`, "info", 3200);
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        showToast(`加载直接回复失败：${error?.message || "请求未完成"}`, "error");
+      }
+    } finally {
+      if (state.directRepliesAbortController === controller) {
+        state.directRepliesAbortController = null;
+      }
+    }
+  }
+
+  function resolveEmptyDirectRepliesMessage(expected) {
+    if (expected <= 0) {
+      return "暂无直接回复。";
+    }
+
+    if (hasMoreTopicPosts(state.currentTopic)) {
+      return "当前扫描范围内未找到直接回复，可打开原帖继续查看。";
+    }
+
+    return "未找到可显示的直接回复，相关帖子可能已被删除。";
+  }
+
+  function populatePostRepliesPopover(popoverEl, parentPost) {
+    popoverEl.replaceChildren();
+
+    const topic = state.currentTopic;
+    const parentNum = parentPost?.post_number;
+    if (!Number.isFinite(parentNum)) {
+      return;
+    }
+
+    const replies = getKnownDirectReplies(topic, parentNum);
+    const expected = typeof parentPost.reply_count === "number" ? parentPost.reply_count : replies.length;
+
+    if (!replies.length) {
+      const empty = document.createElement("div");
+      empty.className = "ld-post-replies-popover-empty";
+      empty.textContent = resolveEmptyDirectRepliesMessage(expected);
+      popoverEl.appendChild(empty);
+      return;
+    }
+
+    if (replies.length < expected) {
+      const hint = document.createElement("div");
+      hint.className = "ld-post-replies-popover-hint";
+      hint.textContent = `当前找到 ${replies.length} / ${expected} 条直接回复；其余可能超出扫描范围或已被删除。`;
+      popoverEl.appendChild(hint);
+    }
+
+    for (const replyPost of replies) {
+      popoverEl.appendChild(buildPostReplyPreviewRow(replyPost));
+    }
+  }
+
+  function buildPostReplyStatWrap(parentPost, item) {
+    const wrap = document.createElement("div");
+    wrap.className = "ld-post-replies-stat-wrap";
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "ld-post-info-item ld-post-info-item--replies-trigger";
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.setAttribute("aria-haspopup", "true");
+    trigger.setAttribute("aria-label", `第 ${parentPost.post_number ?? "?"} 楼有 ${item.count} 条直接回复，点击查看`);
+    trigger.title = `${item.label} ${item.count}：点击查看；将按全串流补齐数据，点击楼层可在预览内跳转或新标签打开`;
+
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "ld-post-info-icon";
+    iconSpan.setAttribute("aria-hidden", "true");
+    iconSpan.innerHTML = item.icon;
+
+    const countSpan = document.createElement("span");
+    countSpan.textContent = String(item.count);
+
+    trigger.append(iconSpan, countSpan);
+
+    const popover = document.createElement("div");
+    popover.className = "ld-post-replies-popover";
+    popover.setAttribute("hidden", "");
+    popover.setAttribute("role", "region");
+    popover.setAttribute(
+      "aria-label",
+      Number.isFinite(parentPost.post_number)
+        ? `第 ${parentPost.post_number} 楼的直接回复`
+        : "直接回复列表"
+    );
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const willOpen = popover.hasAttribute("hidden");
+      closeAllPopovers();
+      if (!willOpen) {
+        trigger.setAttribute("aria-expanded", "false");
+        return;
+      }
+
+      const parentNum = parentPost.post_number;
+      if (!Number.isFinite(parentNum)) {
+        return;
+      }
+
+      trigger.disabled = true;
+
+      void (async () => {
+        try {
+          await ensureDirectRepliesLoadedForPopover(parentNum);
+        } catch {
+          /* loadMorePosts 内部已处理错误 */
+        }
+
+        const card = state.content?.querySelector(`.ld-post-card[data-post-number="${parentNum}"]`);
+        const liveWrap = card?.querySelector(".ld-post-replies-stat-wrap");
+        const liveTrigger = liveWrap?.querySelector(".ld-post-info-item--replies-trigger");
+        const livePopover = liveWrap?.querySelector(".ld-post-replies-popover");
+
+        if (liveTrigger) {
+          liveTrigger.disabled = false;
+        } else if (trigger.isConnected) {
+          trigger.disabled = false;
+        }
+
+        if (!livePopover || !liveTrigger) {
+          return;
+        }
+
+        const topic = state.currentTopic;
+        const freshParent = (topic?.post_stream?.posts || []).find((p) => p?.post_number === parentNum) || parentPost;
+
+        populatePostRepliesPopover(livePopover, freshParent);
+        livePopover.removeAttribute("hidden");
+        liveTrigger.setAttribute("aria-expanded", "true");
+      })();
+    });
+
+    wrap.append(trigger, popover);
+    return wrap;
+  }
+
+  function buildPostInfos(post) {
+    const items = [];
+
+    if (typeof post.reads === "number" && post.reads > 0) {
+      items.push({
+        kind: "stat",
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+        count: post.reads,
+        label: "阅读"
+      });
+    }
+
+    const likeCount = typeof post.like_count === "number"
+      ? post.like_count
+      : (Array.isArray(post.reactions) ? post.reactions.reduce((s, r) => s + (r.count || 0), 0) : 0);
+    if (likeCount > 0) {
+      items.push({
+        kind: "stat",
+        icon: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`,
+        count: likeCount,
+        label: "点赞"
+      });
+    }
+
+    if (typeof post.reply_count === "number" && post.reply_count > 0) {
+      items.push({
+        kind: "replies",
+        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+        count: post.reply_count,
+        label: "回复"
+      });
+    }
+
+    if (!items.length) {
+      return null;
+    }
+
+    const infos = document.createElement("div");
+    infos.className = "ld-post-infos";
+
+    for (const item of items) {
+      if (item.kind === "replies") {
+        infos.appendChild(buildPostReplyStatWrap(post, item));
+        continue;
+      }
+
+      const span = document.createElement("span");
+      span.className = "ld-post-info-item";
+      span.setAttribute("title", item.label);
+
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "ld-post-info-icon";
+      iconSpan.setAttribute("aria-hidden", "true");
+      iconSpan.innerHTML = item.icon;
+
+      const countSpan = document.createElement("span");
+      countSpan.textContent = String(item.count);
+
+      span.append(iconSpan, countSpan);
+      infos.appendChild(span);
+    }
+
+    return infos;
+  }
+
   function buildPostMeta(post) {
     const parts = [];
 
@@ -3416,24 +4698,7 @@
       parts.push(formatDate(post.created_at));
     }
 
-    if (typeof post.reads === "number") {
-      parts.push(`${post.reads} 阅读`);
-    }
-
-    if (typeof post.reply_count === "number" && post.reply_count > 0) {
-      parts.push(`${post.reply_count} 回复`);
-    }
-
     return parts.join(" · ");
-  }
-
-  function normalizeCount(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric < 0) {
-      return null;
-    }
-
-    return Math.round(numeric);
   }
 
   function formatDate(value) {
@@ -3457,13 +4722,50 @@
     );
   }
 
+  function parseStoredSettings(value) {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === "object") {
+      return value;
+    }
+
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function readPersistedSettings() {
+    try {
+      return parseStoredSettings(localStorage.getItem(SETTINGS_KEY));
+    } catch {
+      return null;
+    }
+  }
+
   function loadSettings() {
     try {
-      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+      const saved = readPersistedSettings();
       const settings = {
         ...DEFAULT_SETTINGS,
         ...(saved && typeof saved === "object" ? saved : {})
       };
+
+      if (!["auto", "smart", "iframe"].includes(settings.previewMode)) {
+        settings.previewMode = DEFAULT_SETTINGS.previewMode;
+      }
+
+      if (settings.trackPreviewVisit !== "on" && settings.trackPreviewVisit !== "off") {
+        settings.trackPreviewVisit = DEFAULT_SETTINGS.trackPreviewVisit;
+      }
 
       if (!(settings.drawerWidth in DRAWER_WIDTHS) && settings.drawerWidth !== "custom") {
         settings.drawerWidth = DEFAULT_SETTINGS.drawerWidth;
@@ -3481,6 +4783,7 @@
         settings.floatingReplyButton = DEFAULT_SETTINGS.floatingReplyButton;
       }
 
+      settings.replyPanelPosition = normalizeReplyPanelPosition(settings.replyPanelPosition);
       settings.postBodyFontSize = clampPostBodyFontSize(settings.postBodyFontSize);
       settings.drawerWidthCustom = clampDrawerWidth(settings.drawerWidthCustom);
       return settings;
@@ -3490,7 +4793,11 @@
   }
 
   function saveSettings() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+    } catch {
+      // Some privacy modes may disable localStorage.
+    }
   }
 
   function resetReplyComposer() {
@@ -3516,18 +4823,16 @@
     const isTargetedReply = Number.isFinite(state.replyTargetPostNumber);
     const isReplyUploading = state.replyUploadPendingCount > 0;
     const hasCurrentUrl = Boolean(state.currentUrl);
-    const isIframeMode = state.root?.classList.contains(IFRAME_MODE_CLASS);
     const isSettingsOpen = !state.settingsPanel?.hidden;
 
     if (state.replyToggleButton) {
-      state.replyToggleButton.hidden = !hasCurrentUrl || isIframeMode;
+      state.replyToggleButton.hidden = !hasCurrentUrl;
       state.replyToggleButton.disabled = !hasTopic || state.isReplySubmitting;
       state.replyToggleButton.classList.toggle("is-disabled", !hasTopic || state.isReplySubmitting);
     }
 
     if (state.replyFabButton) {
       state.replyFabButton.hidden = !hasCurrentUrl
-        || isIframeMode
         || isSettingsOpen
         || state.settings.floatingReplyButton !== "on";
       state.replyFabButton.disabled = !hasTopic || state.isReplySubmitting;
@@ -3592,7 +4897,7 @@
   }
 
   function syncPostBodyFontSizeControlState() {
-    const isSmartPreview = state.settings.previewMode === "smart";
+    const isSmartPreview = state.settings.previewMode === "smart" || state.settings.previewMode === "auto";
 
     if (state.postBodyFontSizeField) {
       state.postBodyFontSizeField.classList.toggle("is-disabled", !isSmartPreview);
@@ -3606,7 +4911,7 @@
     if (state.postBodyFontSizeHint) {
       state.postBodyFontSizeHint.textContent = isSmartPreview
         ? "只调整帖子正文和代码字号，不影响标题和按钮"
-        : "仅智能预览可用；当前整页模式下不会改变 iframe 里的字号。";
+        : "仅自动/智能预览可用；当前整页模式下不会改变 iframe 里的字号。";
     }
   }
 
@@ -3651,6 +4956,7 @@
     state.settings.postBodyFontSize = clampPostBodyFontSize(target.value);
     target.value = String(state.settings.postBodyFontSize);
     applyPostBodyFontSize();
+    saveSettings();
   }
 
   function handleSettingsChange(event) {
@@ -3705,6 +5011,7 @@
     applyPostBodyFontSize();
     applyDrawerWidth();
     applyDrawerMode();
+    applyReplyPanelPosition();
     syncReplyUI();
     refreshCurrentView();
     setSettingsPanelOpen(false);
@@ -3830,6 +5137,10 @@
     const offset = `${state.header.offsetHeight + 8}px`;
     state.root.style.setProperty("--ld-settings-top", offset);
     state.root.style.setProperty("--ld-reply-panel-top", offset);
+
+    if (!state.isReplyPanelDragging) {
+      applyReplyPanelPosition(true);
+    }
   }
 
   function scheduleTopicTrackerPositionSync() {
@@ -3938,22 +5249,23 @@
 
     window.addEventListener("popstate", handleLocationChange, true);
 
-    let syncQueued = false;
+    let navigationSyncTimer = 0;
     const queueNavigationSync = () => {
-      if (syncQueued) {
+      if (navigationSyncTimer) {
+        clearTimeout(navigationSyncTimer);
+      }
+      navigationSyncTimer = window.setTimeout(() => {
+        navigationSyncTimer = 0;
+        syncNavigationState();
+      }, 80);
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      if (mutations.every((mutation) => mutation.target instanceof Element && mutation.target.closest?.(`#${ROOT_ID}`))) {
         return;
       }
 
-      syncQueued = true;
-      requestAnimationFrame(() => {
-        syncQueued = false;
-        syncNavigationState();
-      });
-    };
-
-    const observer = new MutationObserver(() => {
       scheduleTopicTrackerPositionSync();
-
       if (location.href !== state.lastLocation) {
         handleLocationChange();
       } else if (state.currentUrl) {
@@ -3961,7 +5273,8 @@
       }
     });
 
-    observer.observe(document.documentElement, {
+    const observeTarget = document.querySelector(MAIN_CONTENT_SELECTOR) || document.body;
+    observer.observe(observeTarget, {
       childList: true,
       subtree: true
     });

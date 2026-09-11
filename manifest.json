@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Linux.do SidePeek",
-  "version": "0.6.0",
+  "version": "0.7.2",
   "description": "Preview Linux.do topics in a right-side drawer without leaving the current page.",
   "browser_specific_settings": {
     "gecko": {
