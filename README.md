@@ -1,4 +1,29 @@
-# Linux.do SidePeek
+# Linux.do SidePeek Enhanced（二次开发版）
+
+由 **AceCandy** 维护的独立二次开发版，基于 [BobDLA/linux-do-sidepeek](https://github.com/BobDLA/linux-do-sidepeek)。原始抽屉预览、回复、图片预览等能力来自上游及其贡献者；本仓库保留上游 Git 历史和致谢，不是上游官方发行版。
+
+## 下载与安装 · v0.7.2
+
+| 版本 | 直接下载 | 安装方式 |
+| --- | --- | --- |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.7.2/linux-do-sidepeek-0.7.2-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.7.2/linux-do-sidepeek-0.7.2-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.7.2/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.7.2) · [更新日志](CHANGELOG.md)
+
+扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 0.7.2 更新了什么
+
+- 去掉左侧固定工具栏，把上一帖、下一帖、刷新、设置、回复、新标签打开、关闭集中到顶部，给正文留出更多宽度。
+- 自动/智能预览在当前页面内存中缓存最近 12 个主题，最长保留 10 分钟；重新打开时恢复阅读位置，数据超过 30 秒时先展示缓存再后台刷新。
+- 保留油猴专用设置存储及本地存储回退；扩展版继续使用站点本地存储保存设置。
+- 同时提供扩展和油猴脚本。二开版使用独立名称与命名空间，移除指向其他脚本的更新地址和自定义更新弹窗。
+
+以上说明对应本仓库同步的 0.7.2 版本，不表示上游所有基础功能均由本仓库原创。iframe 整页模式不使用上述主题内存缓存。
+
+语法、打包和缓存断言已通过；固定页面已验证部分交互。在线回复、上传、自定义表情和 Firefox 完整交互尚未完成回归，详见 [测试记录](doc/testing-standard.md)。
 
 给 `https://linux.do` 里的主题链接加一个右侧抽屉预览：点击帖子标题后，不离开当前页面，右边直接展开内容。
 
@@ -88,7 +113,7 @@
 1. 打开扩展管理页
 2. 打开“开发者模式”
 3. 选择“加载已解压的扩展程序”
-4. 选择当前目录 `/mnt/hdd/work/temp/linux.do_improvement`
+4. 选择下载 ZIP 解压后包含 `manifest.json` 的目录
 
 ### Firefox
 
@@ -107,6 +132,7 @@
 - Release 附件会同时产出：
   - `linux-do-sidepeek-<version>-chrome.zip`
   - `linux-do-sidepeek-<version>-firefox-unsigned.xpi`
+  - `linuxdo-sidepeek.user.js`
 - Firefox 附件是未签名包，适合临时加载或后续签名；它不等同于可直接长期安装的正式发行包
 - 建议发版时把 `CHANGELOG.md` 对应条目同步到 GitHub Release Notes，方便直接查看更新记录与致谢
 

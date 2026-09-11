@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Linux.do SidePeek",
+  "name": "Linux.do SidePeek Enhanced",
   "version": "0.7.2",
-  "description": "Preview Linux.do topics in a right-side drawer without leaving the current page.",
+  "description": "基于 BobDLA/Linux.do SidePeek 的二次开发版：右侧抽屉预览、顶部工具栏、主题缓存与阅读位置恢复。",
   "browser_specific_settings": {
     "gecko": {
       "id": "@linux-do-sidepeek",

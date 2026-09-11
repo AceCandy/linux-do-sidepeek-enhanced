@@ -47,5 +47,6 @@ jobs:
           files: |
             ${{ env.CHROME_ZIP_PATH }}
             ${{ env.FIREFOX_XPI_PATH }}
+            userscript/linuxdo-sidepeek.user.js
           generate_release_notes: true
           make_latest: true
