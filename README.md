@@ -4,6 +4,8 @@
 
 ## 下载与安装 · v0.7.2
 
+油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
+
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
 | Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.7.2/linux-do-sidepeek-0.7.2-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
