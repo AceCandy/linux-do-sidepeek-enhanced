@@ -9,12 +9,13 @@
   const PAGE_IFRAME_OPEN_CLASS = "ld-drawer-page-iframe-open";
   const ACTIVE_LINK_CLASS = "ld-drawer-topic-link-active";
   const IFRAME_MODE_CLASS = "ld-drawer-iframe-mode";
+  const NATIVE_OVERLAY_SELECTOR = ".pswp--open, .discourse-boosts-content, .emoji-picker-content, .d-modal, .dialog-container, .fk-d-menu, .menu-panel, .chat-drawer";
   const SETTINGS_KEY = "ld-drawer-settings-v1";
   const LOAD_MORE_BATCH_SIZE = 20;
   const LOAD_MORE_TRIGGER_OFFSET = 240;
   const DIRECT_REPLIES_MAX_BATCHES = 5;
   const DIRECT_REPLIES_FALLBACK_BATCHES = 3;
-  const TOPIC_CACHE_MAX_ENTRIES = 12;
+  const TOPIC_CACHE_MAX_ENTRIES = 100;
   const TOPIC_CACHE_TTL = 10 * 60 * 1000;
   const TOPIC_CACHE_BACKGROUND_REFRESH_AGE = 30 * 1000;
   const IMAGE_PREVIEW_SCALE_MIN = 1;
@@ -30,6 +31,8 @@
     authorFilter: "all",
     replyOrder: "default",
     floatingReplyButton: "on",
+    showTrustStatus: "on",
+    listAlignLeft: "off",
     drawerWidth: "narrow",
     drawerWidthCustom: 720,
     drawerMode: "overlay",
@@ -106,6 +109,7 @@
     content: null,
     replyToggleButton: null,
     replyFabButton: null,
+    topFabButton: null,
     replyPanel: null,
     replyPanelHead: null,
     replyPanelTitle: null,
@@ -131,6 +135,7 @@
     prevButton: null,
     nextButton: null,
     resizeHandle: null,
+    headerLayoutObserver: null,
     activeLink: null,
     currentUrl: "",
     currentEntryElement: null,
@@ -154,6 +159,16 @@
     directRepliesAbortController: null,
     directReplyCache: new Map(),
     topicCache: new Map(),
+    prefetchObserver: null,
+    prefetchObserved: new Set(),
+    prefetchVisible: new Set(),
+    prefetchAttempted: new WeakMap(),
+    prefetchRequests: new Map(),
+    prefetchScanTimer: 0,
+    prefetchNextAt: 0,
+    prefetchPausedUntil: 0,
+    previewPageHidden: false,
+    reading: null,
     replyUploadControllers: [],
     replyUploadPendingCount: 0,
     replyUploadSerial: 0,
@@ -180,13 +195,215 @@
     topicTrackerRefreshStartedAt: 0,
     topicTrackerRefreshLoadingObserved: false,
     availableReactions: null,
-    toastStack: null
+    toastStack: null,
+    trustPanel: null,
+    trustPinned: false,
+    trustContent: null,
+    trustRefreshButton: null,
+    trustLoading: false,
+    trustLastAttempt: 0
   };
 
   function init() {
     ensureDrawer();
     bindEvents();
     watchLocationChanges();
+    buildTrustStatusPanel();
+    initPreviewAcceleration();
+  }
+
+  function buildTrustStatusPanel() {
+    const panel = document.createElement("details");
+    panel.id = "ld-trust-status";
+    try {
+      state.trustPinned = localStorage.getItem("ld-trust-status-pinned") === "true";
+    } catch {}
+    panel.open = state.trustPinned;
+
+    const summary = document.createElement("summary");
+    summary.textContent = "等级";
+    summary.setAttribute("aria-label", "信任等级进度");
+    summary.title = "悬停查看，点击固定展开；再次点击或按 Esc 收起";
+    const badge = document.createElement("span");
+    badge.className = "ld-status-level";
+    badge.textContent = "进度";
+    summary.append(badge);
+    const actions = document.createElement("div");
+    actions.className = "ld-status-actions";
+    const refresh = document.createElement("button");
+    refresh.type = "button";
+    refresh.textContent = "刷新";
+    refresh.addEventListener("click", () => refreshTrustStatus(true));
+    const link = document.createElement("a");
+    link.href = "https://connect.linux.do/";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Connect ↗";
+    actions.append(refresh, link);
+    const content = document.createElement("div");
+    content.className = "ld-status-content";
+    content.setAttribute("aria-live", "polite");
+    content.textContent = "展开后获取信任等级进度。";
+    panel.append(summary, actions, content);
+    state.trustPanel = panel;
+    state.trustContent = content;
+    state.trustRefreshButton = refresh;
+    document.body.append(panel);
+    syncTrustStatusVisibility();
+    function setPinned(pinned) {
+      state.trustPinned = pinned;
+      panel.open = pinned;
+      try { localStorage.setItem("ld-trust-status-pinned", String(pinned)); } catch {}
+    }
+    summary.addEventListener("click", (event) => {
+      event.preventDefault();
+      setPinned(!state.trustPinned);
+    });
+    panel.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "mouse") panel.open = true;
+    });
+    panel.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse" && !state.trustPinned && !panel.contains(document.activeElement)) panel.open = false;
+    });
+    panel.addEventListener("focusout", (event) => {
+      if (!state.trustPinned && !panel.matches(":hover") && !panel.contains(event.relatedTarget)) panel.open = false;
+    });
+    panel.addEventListener("toggle", () => refreshTrustStatus());
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setPinned(false);
+        summary.focus();
+      }
+    });
+    document.addEventListener("visibilitychange", () => refreshTrustStatus());
+    setInterval(() => refreshTrustStatus(), 300000);
+    refreshTrustStatus();
+  }
+
+  function syncTrustStatusVisibility() {
+    if (!state.trustPanel) return;
+    state.trustPanel.hidden = state.settings.showTrustStatus === "off";
+    state.trustPanel.open = !state.trustPanel.hidden && state.trustPinned;
+    refreshTrustStatus();
+  }
+
+  function fetchTrustStatusHtml() {
+    return new Promise((resolve, reject) => {
+      const fail = () => reject(new Error("获取失败，请先打开 Connect 完成登录或验证，再重试。"));
+      if (typeof GM_xmlhttpRequest === "function") {
+        GM_xmlhttpRequest({
+          method: "GET",
+          url: "https://connect.linux.do/",
+          timeout: 15000,
+          onload(response) {
+            if (response.status !== 200 || !response.finalUrl?.startsWith("https://connect.linux.do/")) {
+              fail();
+              return;
+            }
+            resolve(response.responseText);
+          },
+          onerror: fail,
+          ontimeout: fail,
+          onabort: fail
+        });
+        return;
+      }
+      if (!globalThis.chrome?.runtime?.sendMessage) {
+        fail();
+        return;
+      }
+      chrome.runtime.sendMessage({ type: "ld-fetch-trust-status" }, (response) => {
+        if (chrome.runtime.lastError || typeof response?.html !== "string") {
+          fail();
+          return;
+        }
+        resolve(response.html);
+      });
+    });
+  }
+
+  function parseTrustStatus(html) {
+    if (typeof html !== "string" || html.length > 2_000_000) {
+      throw new Error("状态页面格式不正确。");
+    }
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const card = Array.from(doc.querySelectorAll(".card")).find((node) =>
+      /信任级别\s*\d+\s*的要求/.test(node.querySelector(".card-title, h2")?.textContent || "")
+    );
+    if (!card) {
+      throw new Error("未找到等级数据，请先打开 Connect 确认登录及页面状态。若已登录，页面结构可能已变更。");
+    }
+    const requirements = [];
+    for (const item of card.querySelectorAll(".tl3-ring, .tl3-bar-item, .tl3-quota-card, .tl3-veto-item")) {
+      const name = item.querySelector(".tl3-ring-label, .tl3-bar-label, .tl3-quota-label, .tl3-veto-label")?.textContent.trim();
+      const currentNode = item.querySelector(".tl3-ring-current");
+      const numberText = item.querySelector(".tl3-bar-nums, .tl3-quota-nums, .tl3-veto-value")?.textContent || "";
+      const numbers = numberText.replace(/,/g, "").match(/\d+/g) || [];
+      const currentText = currentNode?.textContent || numbers[0];
+      const requiredText = item.querySelector(".tl3-ring-target")?.textContent || numbers[1];
+      const current = Number(String(currentText).replace(/,/g, "").match(/\d+/)?.[0]);
+      const required = item.matches(".tl3-veto-item") ? 0 : Number(String(requiredText).replace(/,/g, "").match(/\d+/)?.[0]);
+      if (!name || !Number.isSafeInteger(current) || !Number.isSafeInteger(required)) {
+        throw new Error("等级指标格式已变更，请在 Connect 查看原始数据。");
+      }
+      const reverse = item.matches(".tl3-quota-card, .tl3-veto-item");
+      const met = item.matches(".met") || Boolean(item.querySelector(".met"));
+      const unmet = item.matches(".unmet") || Boolean(item.querySelector(".unmet"));
+      requirements.push({ name, current, required, met: met ? true : unmet ? false : reverse ? current <= required : current >= required });
+    }
+    if (!requirements.length) {
+      throw new Error("未找到可识别的等级指标，请在 Connect 查看原始数据。");
+    }
+    const subtitle = card.querySelector(".card-subtitle")?.textContent || "";
+    const username = subtitle.match(/@[^\s·]+/)?.[0] || doc.querySelector(".user-menu-info .font-semibold")?.textContent.trim() || "";
+    const targetLevel = card.querySelector(".card-title, h2").textContent.match(/信任级别\s*(\d+)/)[1];
+    return { username, targetLevel, requirements };
+  }
+
+  function renderTrustStatus(data) {
+    state.trustPanel.querySelector(".ld-status-level").textContent = `目标 TL${data.targetLevel}`;
+    const heading = document.createElement("p");
+    heading.textContent = `${data.username} · 信任级别 ${data.targetLevel} 要求`;
+    const list = document.createElement("dl");
+    for (const item of data.requirements) {
+      const row = document.createElement("div");
+      row.className = "ld-status-row";
+      const name = document.createElement("dt");
+      name.textContent = item.name;
+      const value = document.createElement("dd");
+      value.textContent = `${item.current.toLocaleString()} / ${item.required.toLocaleString()}`;
+      value.className = item.met ? "ld-status-met" : "ld-status-unmet";
+      value.title = item.met ? "已达标" : "未达标";
+      value.setAttribute("aria-label", `${value.textContent}，${value.title}`);
+      row.append(name, value);
+      list.append(row);
+    }
+    const updated = document.createElement("small");
+    updated.textContent = `更新于 ${new Date().toLocaleTimeString()}；数据来自 Connect，统计可能延迟。`;
+    state.trustContent.replaceChildren(heading, list, updated);
+  }
+
+  async function refreshTrustStatus(force = false) {
+    if (state.settings.showTrustStatus === "off" || !state.trustPanel?.open || document.hidden || state.trustLoading ||
+        (!force && Date.now() - state.trustLastAttempt < 300000)) {
+      return;
+    }
+    state.trustLoading = true;
+    state.trustLastAttempt = Date.now();
+    state.trustRefreshButton.disabled = true;
+    state.trustContent.setAttribute("aria-busy", "true");
+    state.trustContent.textContent = "正在获取等级进度…";
+    try {
+      renderTrustStatus(parseTrustStatus(await fetchTrustStatusHtml()));
+    } catch (error) {
+      state.trustContent.textContent = error.message;
+    } finally {
+      state.trustLoading = false;
+      state.trustRefreshButton.disabled = false;
+      state.trustContent.setAttribute("aria-busy", "false");
+    }
   }
 
   function ensureDrawer() {
@@ -204,16 +421,12 @@
         <div class="ld-drawer-main">
           <div class="ld-drawer-header">
             <div class="ld-drawer-header-top">
-              <div class="ld-drawer-eyebrow">LINUX DO 预览</div>
               <div class="ld-drawer-header-actions" role="toolbar" aria-label="抽屉操作">
                 <button class="ld-drawer-nav" type="button" data-nav="prev" data-tooltip="上一帖" aria-label="上一帖">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
                 </button>
                 <button class="ld-drawer-nav" type="button" data-nav="next" data-tooltip="下一帖" aria-label="下一帖">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-                </button>
-                <button class="ld-drawer-refresh" type="button" aria-label="刷新最新回复" data-tooltip="刷新最新回复" hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
                 </button>
                 <span class="ld-header-action-divider" aria-hidden="true"></span>
                 <button class="ld-drawer-settings-toggle" type="button" aria-expanded="false" aria-controls="ld-drawer-settings" data-tooltip="选项" aria-label="选项">
@@ -298,10 +511,10 @@
               <label class="ld-setting-field">
                 <span class="ld-setting-label">阅读状态</span>
                 <select class="ld-setting-control" data-setting="trackPreviewVisit">
-                  <option value="on">预览即标记已读</option>
-                  <option value="off">预览不标记已读</option>
+                  <option value="on">同步实际阅读进度</option>
+                  <option value="off">不同步阅读进度</option>
                 </select>
-                <span class="ld-setting-hint">仅影响智能/自动预览；整页模式由原网页决定阅读状态</span>
+                <span class="ld-setting-hint">仅上报前台实际阅读的楼层；预取不计已读。阅读末楼可能推进整帖已读位置，整页模式由原网页处理</span>
               </label>
               <label class="ld-setting-field">
                 <span class="ld-setting-label">抽屉模式</span>
@@ -310,6 +523,22 @@
                   <option value="overlay">浮层模式</option>
                 </select>
                 <span class="ld-setting-hint">浮层模式下抽屉悬浮于页面上方，不压缩原有内容</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">信任等级悬浮框</span>
+                <select class="ld-setting-control" data-setting="showTrustStatus">
+                  <option value="on">显示</option>
+                  <option value="off">隐藏</option>
+                </select>
+                <span class="ld-setting-hint">隐藏后停止自动获取等级数据</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">宽屏帖子列表靠左</span>
+                <select class="ld-setting-control" data-setting="listAlignLeft">
+                  <option value="off">保持原站布局</option>
+                  <option value="on">开启</option>
+                </select>
+                <span class="ld-setting-hint">宽屏列表容器靠左；原站边栏正常展开收起，独立于抽屉开关和悬浮或挤压模式</span>
               </label>
               <label class="ld-setting-field">
                 <span class="ld-setting-label">抽屉宽度</span>
@@ -327,6 +556,12 @@
           <div class="ld-drawer-body">
             <div class="ld-drawer-content"></div>
           </div>
+          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-refresh" type="button" aria-label="刷新当前帖子" title="刷新当前帖子" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+          </button>
+          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-back-top" type="button" aria-label="回到顶部" title="回到顶部">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h14M12 20V8m-6 6 6-6 6 6"/></svg>
+          </button>
           <button class="ld-drawer-reply-fab ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" title="回复当前主题">
             <span class="ld-drawer-reply-fab-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -363,6 +598,7 @@
       </div>
     `;
 
+    root.prepend(root.querySelector(".ld-drawer-header-top"));
     document.body.append(root, imagePreviewRoot);
 
     state.root = root;
@@ -373,7 +609,8 @@
     state.drawerBody = root.querySelector(".ld-drawer-body");
     state.content = root.querySelector(".ld-drawer-content");
     state.replyToggleButton = root.querySelector(".ld-drawer-reply-toggle");
-    state.replyFabButton = root.querySelector(".ld-drawer-reply-fab");
+    state.replyFabButton = root.querySelector(".ld-drawer-reply-fab.ld-drawer-reply-trigger");
+    state.topFabButton = root.querySelector(".ld-drawer-back-top");
     state.replyPanel = root.querySelector(".ld-drawer-reply-panel");
     state.replyPanelHead = root.querySelector(".ld-reply-panel-head");
     state.replyPanelTitle = root.querySelector(".ld-reply-panel-title");
@@ -400,9 +637,17 @@
     state.resizeHandle = root.querySelector(".ld-drawer-resize-handle");
     state.toastStack = root.querySelector(".ld-toast-stack");
 
+    state.headerLayoutObserver = new ResizeObserver(syncNativeHeaderLayout);
+    state.headerLayoutObserver.observe(root.querySelector(".ld-drawer-header-actions"));
+    const nativeHeader = document.querySelector(".d-header");
+    if (nativeHeader) state.headerLayoutObserver.observe(nativeHeader);
+
     root.querySelector(".ld-drawer-close").addEventListener("click", closeDrawer);
     state.prevButton.addEventListener("click", () => navigateTopic(-1));
     state.nextButton.addEventListener("click", () => navigateTopic(1));
+    state.topFabButton.addEventListener("click", () => {
+      state.drawerBody.scrollTo({ top: 0, behavior: "instant" });
+    });
     state.settingsToggle.addEventListener("click", toggleSettingsPanel);
     state.latestRepliesRefreshButton.addEventListener("click", handleLatestRepliesRefresh);
     state.replyToggleButton.addEventListener("click", toggleReplyPanel);
@@ -469,6 +714,12 @@
       return;
     }
 
+    const link = target.closest("a[href]");
+    const topicUrl = getTopicUrlFromLink(link);
+    if (!topicUrl && (target.closest(NATIVE_OVERLAY_SELECTOR) || target.closest(".d-header-wrap, .sidebar-wrapper"))) {
+      return;
+    }
+
     if (!state.imagePreview?.hidden && target.closest(`#${IMAGE_PREVIEW_ROOT_ID}`)) {
       return;
     }
@@ -489,16 +740,14 @@
       return;
     }
 
-    const link = target.closest("a[href]");
-    if (link && !link.closest(`#${ROOT_ID}`)) {
-      const topicUrl = getTopicUrlFromLink(link);
-      if (topicUrl) {
-        event.preventDefault();
-        event.stopPropagation();
-
-        openDrawer(topicUrl, link.textContent.trim(), link);
-        return;
+    if (topicUrl) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (link.closest(".user-menu.menu-panel")) {
+        document.querySelector(".d-header .current-user button")?.click();
       }
+      openDrawer(topicUrl, link.textContent.trim(), link);
+      return;
     }
 
     if (
@@ -513,7 +762,17 @@
     }
   }
 
+  function hasNativeOverlay() {
+    return [...document.querySelectorAll(NATIVE_OVERLAY_SELECTOR)].some((element) =>
+      element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden"
+    );
+  }
+
   function handleKeydown(event) {
+    if (hasNativeOverlay()) {
+      return;
+    }
+
     if (event.key === "Escape" && !state.imagePreview?.hidden) {
       event.preventDefault();
       event.stopPropagation();
@@ -584,15 +843,16 @@
       return null;
     }
 
-    if (!link.closest(MAIN_CONTENT_SELECTOR) || link.closest(`#${ROOT_ID}`)) {
+    if (link.closest(`#${ROOT_ID}`)) {
       return null;
     }
 
-    if (link.closest(EXCLUDED_LINK_CONTEXT_SELECTOR)) {
-      return null;
-    }
-
-    if (!isPrimaryTopicLink(link)) {
+    // 头像菜单中的通知链接不在主内容区，也不使用列表标题样式。
+    if (!link.closest(".user-menu.menu-panel") && (
+      !link.closest(MAIN_CONTENT_SELECTOR) ||
+      link.closest(EXCLUDED_LINK_CONTEXT_SELECTOR) ||
+      !isPrimaryTopicLink(link)
+    )) {
       return null;
     }
 
@@ -612,20 +872,266 @@
   }
 
   function getTopicCacheKey(topicUrl) {
-    try {
-      const url = new URL(topicUrl, location.href);
-      url.hash = "";
-      return url.toString();
-    } catch {
-      return String(topicUrl || "");
+    return getTopicTrackingKey(topicUrl);
+  }
+
+  function initPreviewAcceleration() {
+    if (typeof IntersectionObserver === "function") {
+      state.prefetchObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            state.prefetchVisible.add(entry.target);
+          } else {
+            state.prefetchVisible.delete(entry.target);
+            state.prefetchAttempted.delete(entry.target);
+          }
+        }
+      });
+      queuePrefetchScan();
+      setInterval(runTopicPrefetch, 500);
     }
+    setInterval(tickReading, 1000);
+    const pause = () => {
+      if (!state.reading) return;
+      state.reading.onscreen.clear();
+      state.reading.lastTick = performance.now();
+      flushReading(state.reading);
+    };
+    document.addEventListener("visibilitychange", pause);
+    window.addEventListener("blur", pause);
+    window.addEventListener("focus", () => {
+      if (state.reading) state.reading.lastActivity = performance.now();
+      pause();
+    });
+    window.addEventListener("pagehide", () => {
+      state.previewPageHidden = true;
+      stopReading();
+      state.abortController?.abort();
+      state.abortController = null;
+      cancelLoadMoreRequest();
+      cancelDirectRepliesRequest();
+      for (const request of state.prefetchRequests.values()) request.controller.abort();
+    });
+    window.addEventListener("pageshow", () => {
+      state.previewPageHidden = false;
+      queuePrefetchScan();
+      if (state.currentUrl && !state.currentTopic) {
+        loadTopic(state.currentUrl, state.currentFallbackTitle, state.currentTopicIdHint);
+      } else {
+        startReading();
+      }
+    });
+  }
+
+  function queuePrefetchScan() {
+    if (!state.prefetchObserver || state.prefetchScanTimer) return;
+    state.prefetchScanTimer = window.setTimeout(() => {
+      state.prefetchScanTimer = 0;
+      for (const link of state.prefetchObserved) {
+        if (!link.isConnected) {
+          state.prefetchObserver.unobserve(link);
+          state.prefetchObserved.delete(link);
+          state.prefetchVisible.delete(link);
+        }
+      }
+      document.querySelector(MAIN_CONTENT_SELECTOR)?.querySelectorAll(PRIMARY_TOPIC_LINK_SELECTOR).forEach((link) => {
+        if (!state.prefetchObserved.has(link) && getTopicUrlFromLink(link)) {
+          state.prefetchObserved.add(link);
+          state.prefetchObserver.observe(link);
+        }
+      });
+    }, 80);
+  }
+
+  function runTopicPrefetch() {
+    const now = Date.now();
+    if (document.hidden || state.previewPageHidden || state.settings.previewMode === "iframe" ||
+        state.abortController || state.loadMoreAbortController || state.prefetchRequests.size >= 2 ||
+        now < state.prefetchNextAt || now < state.prefetchPausedUntil) return;
+    pruneTopicCache();
+    for (const link of state.prefetchVisible) {
+      if (!link.isConnected) continue;
+      const url = getTopicUrlFromLink(link);
+      const topicId = url && getTopicIdFromUrl(url);
+      const key = url && getTopicCacheKey(url);
+      if (state.prefetchAttempted.get(link) === key) continue;
+      if (!Number.isSafeInteger(topicId) || topicId < 1 || state.topicCache.has(key) || state.prefetchRequests.has(key)) continue;
+      const rect = link.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= window.innerHeight ||
+          rect.right <= 0 || rect.left >= window.innerWidth) continue;
+      state.prefetchAttempted.set(link, key);
+      state.prefetchNextAt = now + 500;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const promise = fetchTrackedTopicJson(url, controller.signal, topicId, { canonical: true, trackVisit: false })
+        .then((topic) => {
+          if (controller.signal.aborted) return null;
+          if (topic?.id !== topicId || !Array.isArray(topic.post_stream?.posts) || !topic.post_stream.posts.length) {
+            throw new Error("Invalid topic preview");
+          }
+          if (!state.topicCache.has(key)) {
+            state.topicCache.set(key, { topic, fetchedAt: Date.now(), cachedAt: Date.now(), views: new Map(), currentViewTracked: false });
+            pruneTopicCache();
+          }
+          return topic;
+        }).catch(() => {
+          // 失败后暂停一段时间，避免后台请求持续占用站点额度。
+          state.prefetchPausedUntil = Date.now() + 60000;
+          return null;
+        }).finally(() => {
+          clearTimeout(timeout);
+          state.prefetchRequests.delete(key);
+        });
+      state.prefetchRequests.set(key, { controller, promise });
+      return;
+    }
+  }
+
+  function canTrackReading() {
+    return state.settings.trackPreviewVisit === "on" && !state.previewPageHidden &&
+      !document.hidden && document.hasFocus() && Boolean(document.querySelector("#current-user")) && Boolean(getCsrfToken()) &&
+      document.body.classList.contains(PAGE_OPEN_CLASS) && state.currentTopic &&
+      !state.currentTopic.__sidePeekIframeShell && !state.root?.classList.contains(IFRAME_MODE_CLASS) &&
+      state.settingsPanel?.hidden !== false && state.replyPanel?.hidden !== false && state.imagePreview?.hidden !== false &&
+      !hasNativeOverlay();
+  }
+
+  function startReading() {
+    if (!state.currentTopic || state.currentTopic.__sidePeekIframeShell || state.settings.trackPreviewVisit !== "on") return;
+    const topicId = Number(state.currentTopic.id);
+    if (!Number.isSafeInteger(topicId) || topicId < 1) return;
+    if (state.reading?.topicId !== topicId) {
+      stopReading();
+      const now = performance.now();
+      state.reading = { topicId, token: getCsrfToken(), timings: new Map(), totals: new Map(), onscreen: new Set(), topicTime: 0,
+        lastTick: now, lastActivity: now, lastFlush: now, sending: false, closed: false, errorShown: false, nextSendAt: 0, retryTimer: 0 };
+    }
+    state.reading.onscreen.clear();
+    state.reading.lastTick = performance.now();
+  }
+
+  function getVisibleReadingPosts() {
+    const visible = new Set();
+    const bounds = state.drawerBody.getBoundingClientRect();
+    const top = Math.max(0, bounds.top);
+    const bottom = Math.min(window.innerHeight, bounds.bottom);
+    const left = Math.max(0, bounds.left);
+    const right = Math.min(window.innerWidth, bounds.right);
+    if (bottom <= top || right <= left) return visible;
+    for (const card of state.content.querySelectorAll(".ld-topic-post-list > .ld-post-card[data-post-number]")) {
+      const number = Number(card.dataset.postNumber);
+      const rect = card.getBoundingClientRect();
+      const visibleTop = Math.max(top, rect.top);
+      const visibleBottom = Math.min(bottom, rect.bottom);
+      const visibleLeft = Math.max(left, rect.left);
+      const visibleRight = Math.min(right, rect.right);
+      if (!Number.isSafeInteger(number) || number < 1 || rect.height <= 0 || visibleRight <= visibleLeft ||
+          visibleBottom - visibleTop < Math.min(rect.height, bottom - top) / 2) continue;
+      const hit = document.elementFromPoint((visibleLeft + visibleRight) / 2, (visibleTop + visibleBottom) / 2);
+      if (hit && card.contains(hit)) visible.add(number);
+    }
+    return visible;
+  }
+
+  function tickReading() {
+    const reading = state.reading;
+    if (!reading) return;
+    const now = performance.now();
+    const elapsed = now - reading.lastTick;
+    reading.lastTick = now;
+    if (!canTrackReading() || now - reading.lastActivity > 180000 || elapsed <= 0 || elapsed > 2000) {
+      reading.onscreen.clear();
+      return;
+    }
+    const visible = getVisibleReadingPosts();
+    let counted = false;
+    for (const number of visible) {
+      if (!reading.onscreen.has(number)) continue;
+      const previous = reading.totals.get(number) || 0;
+      const time = Math.min(Math.round(elapsed), 360000 - previous);
+      if (time <= 0) continue;
+      reading.timings.set(number, (reading.timings.get(number) || 0) + time);
+      reading.totals.set(number, previous + time);
+      counted = true;
+    }
+    if (counted) reading.topicTime += Math.round(elapsed);
+    reading.onscreen = visible;
+    if (now - reading.lastFlush >= 5000) flushReading(reading);
+  }
+
+  function stopReading() {
+    const reading = state.reading;
+    if (!reading) return;
+    tickReading();
+    state.reading = null;
+    reading.closed = true;
+    flushReading(reading);
+  }
+
+  async function flushReading(reading) {
+    if (reading.sending) {
+      reading.flushPending = true;
+      return;
+    }
+    if (!reading.timings.size) return;
+    const token = getCsrfToken();
+    if (!token || token !== reading.token || !document.querySelector("#current-user")) {
+      reading.timings.clear();
+      reading.topicTime = 0;
+      return;
+    }
+    const delay = reading.nextSendAt - performance.now();
+    if (delay > 0) {
+      if ((reading.closed || document.hidden || !document.hasFocus()) && !reading.retryTimer) {
+        reading.retryTimer = setTimeout(() => {
+          reading.retryTimer = 0;
+          flushReading(reading);
+        }, delay);
+      }
+      return;
+    }
+    const body = new URLSearchParams({ topic_id: String(reading.topicId), topic_time: String(Math.min(reading.topicTime, 60000)) });
+    for (const [number, time] of reading.timings) body.set(`timings[${number}]`, String(Math.min(time, 60000)));
+    reading.timings.clear();
+    reading.topicTime = 0;
+    reading.lastFlush = performance.now();
+    reading.sending = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${location.origin}/topics/timings`, {
+        method: "POST", credentials: "include", body, keepalive: true, redirect: "error", signal: controller.signal,
+        headers: { "X-CSRF-Token": token, "X-Requested-With": "XMLHttpRequest", "Discourse-Background": "true", "X-SILENCE-LOGGER": "true" }
+      });
+      if (!response.ok || response.headers.get("content-type")?.includes("text/html")) throw new Error("Reading sync failed");
+      reading.errorShown = false;
+    } catch {
+      reading.nextSendAt = performance.now() + 30000;
+      // 上报是累加接口；网络结果不明时不重放同一批，避免重复累计阅读时间。
+      if (!reading.errorShown && state.reading === reading) {
+        showToast("本批阅读进度未确认同步，请检查网络或登录状态", "error");
+        reading.errorShown = true;
+      }
+    } finally {
+      clearTimeout(timeout);
+      reading.sending = false;
+      if (reading.closed || reading.flushPending) {
+        reading.flushPending = false;
+        flushReading(reading);
+      }
+    }
+  }
+
+  function getTopicViewKey(topicUrl) {
+    return [getTopicTargetSpec(topicUrl)?.targetSegments.join("/") || "",
+      state.settings.postMode, state.settings.replyOrder, state.settings.authorFilter].join(":");
   }
 
   function pruneTopicCache() {
     const now = Date.now();
 
     for (const [key, entry] of state.topicCache) {
-      if (!entry || now - Number(entry.cachedAt || 0) > TOPIC_CACHE_TTL) {
+      if (!entry || now - Number(entry.fetchedAt || entry.cachedAt || 0) > TOPIC_CACHE_TTL) {
         state.topicCache.delete(key);
       }
     }
@@ -640,22 +1146,28 @@
   }
 
   function cacheCurrentTopic() {
-    if (!state.currentUrl || !state.currentTopic) {
+    if (!state.currentUrl || !state.currentTopic || state.currentTopic.__sidePeekIframeShell) {
       return;
     }
 
     const key = getTopicCacheKey(state.currentUrl);
+    const views = state.topicCache.get(key)?.views || new Map();
+    const viewKey = getTopicViewKey(state.currentUrl);
+    views.delete(viewKey);
+    views.set(viewKey, {
+      resolvedTargetPostNumber: state.currentResolvedTargetPostNumber,
+      scrollTop: state.drawerBody?.scrollTop || 0
+    });
+    if (views.size > TOPIC_CACHE_MAX_ENTRIES) views.delete(views.keys().next().value);
     const entry = {
       cachedAt: Date.now(),
       topic: state.currentTopic,
       latestRepliesTopic: state.currentLatestRepliesTopic,
-      targetSpec: state.currentTargetSpec,
-      resolvedTargetPostNumber: state.currentResolvedTargetPostNumber,
+      views,
       topicIdHint: state.currentTopicIdHint,
       fallbackTitle: state.currentFallbackTitle,
       currentViewTracked: state.currentViewTracked,
-      fetchedAt: Number(state.currentTopicFetchedAt || 0),
-      scrollTop: state.drawerBody?.scrollTop || 0
+      fetchedAt: Number(state.currentTopicFetchedAt || 0)
     };
 
     state.topicCache.delete(key);
@@ -681,6 +1193,16 @@
       return false;
     }
 
+    const targetSpec = getTopicTargetSpec(topicUrl, topicIdHint);
+    const view = entry.views?.get(getTopicViewKey(topicUrl));
+    const savedTarget = view?.resolvedTargetPostNumber;
+    const resolvedTarget = resolveTopicTargetPostNumber(targetSpec, entry.topic,
+      targetSpec?.targetToken === "last" ? entry.latestRepliesTopic : null) ||
+      (targetSpec?.targetToken && (topicHasPostNumber(entry.topic, savedTarget) || topicHasPostNumber(entry.latestRepliesTopic, savedTarget)) ? savedTarget : null);
+    if ((shouldFetchTargetedTopic(entry.topic, targetSpec) && !resolvedTarget) ||
+        (shouldLoadLatestRepliesTopic(entry.topic, targetSpec) && !entry.latestRepliesTopic)) {
+      return false;
+    }
     state.currentTopicIdHint = entry.topicIdHint || topicIdHint || state.currentTopicIdHint;
     state.currentViewTracked = Boolean(entry.currentViewTracked);
     state.currentTopicFetchedAt = Number(entry.fetchedAt || entry.cachedAt || 0);
@@ -692,11 +1214,11 @@
       entry.topic,
       topicUrl,
       state.currentFallbackTitle,
-      entry.resolvedTargetPostNumber,
+      resolvedTarget,
       {
         latestRepliesTopic: entry.latestRepliesTopic || null,
-        targetSpec: getTopicTargetSpec(topicUrl, state.currentTopicIdHint) || entry.targetSpec || null,
-        preserveScrollTop: Number(entry.scrollTop || 0)
+        targetSpec,
+        preserveScrollTop: view?.scrollTop ?? (targetSpec?.hasTarget ? undefined : 0)
       }
     );
 
@@ -738,13 +1260,21 @@
         return;
       }
 
-      if (!state.currentViewTracked && !state.currentTrackRequest) {
+      if ((!state.currentTopic || state.currentTopic.__sidePeekIframeShell) &&
+          state.settings.previewMode !== "iframe" && !state.abortController) {
         loadTopic(topicUrl, fallbackTitle, topicIdHint);
+      } else {
+        trackCurrentTopicVisit();
       }
 
       return;
     }
 
+    stopReading();
+    state.abortController?.abort();
+    state.abortController = null;
+    cancelLoadMoreRequest();
+    cancelDirectRepliesRequest();
     const cachedTopic = state.settings.previewMode === "iframe"
       ? null
       : getCachedTopic(topicUrl);
@@ -756,6 +1286,7 @@
     state.currentTopic = null;
     state.currentLatestRepliesTopic = null;
     state.currentTopicFetchedAt = 0;
+    state.drawerBody.scrollTop = 0;
     state.directReplyCache.clear();
     state.deferOwnerFilterAutoLoad = false;
     state.loadMoreError = "";
@@ -790,17 +1321,22 @@
           }
 
           loadTopic(topicUrl, fallbackTitle, topicIdHint, {
-            preserveScrollTop: state.drawerBody?.scrollTop || cachedTopic.scrollTop || 0
+            preserveScrollTop: state.drawerBody?.scrollTop || 0
           });
         });
       }
       return;
     }
 
-    loadTopic(topicUrl, fallbackTitle, topicIdHint);
+    if (cachedTopic) state.content.innerHTML = renderLoading();
+    loadTopic(topicUrl, fallbackTitle, topicIdHint, {
+      cachedTopic,
+      preserveScrollTop: cachedTopic?.views?.get(getTopicViewKey(topicUrl))?.scrollTop
+    });
   }
 
   function closeDrawer() {
+    stopReading();
     cacheCurrentTopic();
 
     if (state.abortController) {
@@ -1095,17 +1631,25 @@
       let targetedTopic = null;
       let latestRepliesTopic = null;
 
-      if (state.settings.trackPreviewVisit === "off") {
+      const pending = state.prefetchRequests.get(getTopicCacheKey(topicUrl));
+      let fetchedAt = Date.now();
+      if (options.cachedTopic?.topic) {
+        topic = options.cachedTopic.topic;
+        state.currentViewTracked = Boolean(options.cachedTopic.currentViewTracked) || state.currentViewTracked;
+        fetchedAt = options.cachedTopic.fetchedAt || options.cachedTopic.cachedAt;
+        latestRepliesTopic = options.cachedTopic.latestRepliesTopic || null;
+      } else if (pending) {
+        topic = await pending.promise;
+        fetchedAt = state.topicCache.get(getTopicCacheKey(topicUrl))?.fetchedAt || Date.now();
+      }
+      if (controller.signal.aborted || state.currentUrl !== topicUrl) return;
+
+      if (!topic && (state.settings.trackPreviewVisit === "off" || state.currentViewTracked)) {
         topic = await fetchTrackedTopicJson(topicUrl, controller.signal, topicIdHint, {
           canonical: true,
           trackVisit: false
         });
-      } else if (state.currentViewTracked) {
-        topic = await fetchTrackedTopicJson(topicUrl, controller.signal, topicIdHint, {
-          canonical: true,
-          trackVisit: false
-        });
-      } else {
+      } else if (!topic) {
         topic = await ensureTrackedTopicVisit(topicUrl, topicIdHint, controller.signal);
       }
 
@@ -1120,7 +1664,7 @@
         resolvedTargetPostNumber = resolveTopicTargetPostNumber(targetSpec, topic, null);
       }
 
-      if (shouldLoadLatestRepliesTopic(topic, targetSpec)) {
+      if (shouldLoadLatestRepliesTopic(topic, targetSpec) && !latestRepliesTopic) {
         if (targetSpec?.targetToken === "last" && targetedTopic) {
           latestRepliesTopic = targetedTopic;
         } else {
@@ -1139,7 +1683,7 @@
         return;
       }
 
-      state.currentTopicFetchedAt = Date.now();
+      state.currentTopicFetchedAt = fetchedAt;
       renderTopic(topic, topicUrl, fallbackTitle, resolvedTargetPostNumber, {
         latestRepliesTopic,
         targetSpec,
@@ -1160,6 +1704,7 @@
   }
 
   function renderTopic(topic, topicUrl, fallbackTitle, resolvedTargetPostNumber = null, options = {}) {
+    tickReading();
     setIframeModeEnabled(false);
 
     const posts = topic?.post_stream?.posts || [];
@@ -1181,7 +1726,7 @@
     state.currentResolvedTargetPostNumber = resolvedTargetPostNumber;
     state.deferOwnerFilterAutoLoad = shouldDeferOwnerFilterAutoLoad(viewModel);
     state.title.textContent = topic.title || fallbackTitle || "帖子预览";
-    state.meta.textContent = buildTopicMeta(topic, viewModel.posts.length);
+    renderTopicMeta(topic, viewModel.posts.length);
     state.content.replaceChildren(buildTopicView(topic, viewModel));
     syncLatestRepliesRefreshUI();
     syncReplyUI();
@@ -1195,6 +1740,8 @@
     updateLoadMoreStatus();
     queueAutoLoadCheck();
     cacheCurrentTopic();
+    startReading();
+    trackCurrentTopicVisit();
   }
 
   function canAppendLoadedPostsIncrementally() {
@@ -1244,7 +1791,7 @@
     state.currentTopic = nextTopic;
     state.currentTopicIdHint = typeof nextTopic?.id === "number" ? nextTopic.id : state.currentTopicIdHint;
     state.deferOwnerFilterAutoLoad = false;
-    state.meta.textContent = buildTopicMeta(nextTopic, (nextTopic?.post_stream?.posts || []).length);
+    renderTopicMeta(nextTopic, (nextTopic?.post_stream?.posts || []).length);
 
     if (state.drawerBody && Number.isFinite(previousScrollTop)) {
       state.drawerBody.scrollTop = previousScrollTop;
@@ -1280,32 +1827,8 @@
     const topicOwner = getTopicOwnerIdentity(topic);
 
     if (!state.hasShownPreviewNotice) {
-      const notice = document.createElement("div");
-      notice.className = "ld-topic-note ld-topic-note-warning";
-      notice.textContent = "抽屉预览是便捷阅读视图，标签和回复顺序可能与原帖页略有差异；需要完整阅读时可点右上角“新标签打开”。";
-      wrapper.appendChild(notice);
+      showToast("抽屉预览是便捷阅读视图，标签和回复顺序可能与原帖页略有差异；需要完整阅读时可点右上角“新标签打开”。", "info", 8000, true);
       state.hasShownPreviewNotice = true;
-    }
-
-    if (Array.isArray(topic.tags) && topic.tags.length) {
-      const tagList = document.createElement("div");
-      tagList.className = "ld-tag-list";
-
-      for (const tag of topic.tags) {
-        const label = getTagLabel(tag);
-        if (!label) {
-          continue;
-        }
-
-        const item = document.createElement("span");
-        item.className = "ld-tag";
-        item.textContent = label;
-        tagList.appendChild(item);
-      }
-
-      if (tagList.childElementCount > 0) {
-        wrapper.appendChild(tagList);
-      }
     }
 
     const postList = document.createElement("div");
@@ -1540,6 +2063,13 @@
     const body = document.createElement("div");
     body.className = "ld-post-body cooked";
     body.innerHTML = post.cooked || "";
+    initializePostCarousels(body);
+    queueMicrotask(() => {
+      if (!body.isConnected) return;
+      body.setAttribute("data-ld-native-post", JSON.stringify(post));
+      body.dispatchEvent(new Event("ld-render-native-post", { bubbles: true }));
+      body.removeAttribute("data-ld-native-post");
+    });
 
     for (const link of body.querySelectorAll("a[href]")) {
       link.target = "_blank";
@@ -1602,56 +2132,41 @@
     const reactWrap = document.createElement("div");
     reactWrap.className = "ld-post-react-wrap";
 
-    const postReactions = Array.isArray(post.reactions) ? post.reactions : [];
-    const likeAction = Array.isArray(post.actions_summary)
-      ? post.actions_summary.find((a) => a.id === 2)
-      : null;
-    const hasReacted = postReactions.some((r) => r.reacted === true) || likeAction?.acted === true;
-    const reactCount = postReactions.reduce((sum, r) => sum + (r.count || 0), 0)
-      || post.like_count
-      || likeAction?.count
-      || 0;
-
     const reactBtn = document.createElement("button");
     reactBtn.type = "button";
-    reactBtn.className = "ld-post-react-btn" + (hasReacted ? " ld-post-react-btn--reacted" : "");
-    reactBtn.setAttribute("aria-label", hasReacted ? "取消反应" : "添加反应");
-    reactBtn.innerHTML = `
-      <span class="ld-post-react-btn-icon" aria-hidden="true">
-        ${buildReactHeartIconSvg(hasReacted)}
-      </span>
-      ${reactCount > 0 ? `<span class="ld-post-react-count">${reactCount}</span>` : ""}
-    `;
+    reactBtn.className = "ld-post-react-btn";
+    reactBtn.setAttribute("aria-expanded", "false");
+    renderPostReactionButton(reactBtn, post);
+    queueMicrotask(() => {
+      if (!reactBtn.isConnected) return;
+      reactBtn.dispatchEvent(new Event("ld-get-reactions", { bubbles: true }));
+      try {
+        const reactions = JSON.parse(reactBtn.getAttribute("data-ld-reactions"));
+        if (Array.isArray(reactions) && reactions.length) {
+          state.availableReactions = reactions.filter((r) => typeof r.id === "string");
+          for (const r of state.availableReactions) {
+            if (typeof r.url === "string" && /^(https?:\/\/|\/)/.test(r.url)) REACTION_URL_CACHE[r.id] = r.url;
+          }
+          renderPostReactionButton(reactBtn, post);
+        }
+      } catch {}
+      reactBtn.removeAttribute("data-ld-reactions");
+    });
 
     const reactionsPopover = document.createElement("div");
     reactionsPopover.className = "ld-reactions-popover";
     reactionsPopover.setAttribute("hidden", "");
 
-    let reactHideTimer = null;
-
-    function showReactionsPopover() {
-      clearTimeout(reactHideTimer);
+    reactBtn.addEventListener("click", () => {
+      const opening = reactionsPopover.hidden;
       closeAllPopovers();
+      if (!opening) return;
       reactionsPopover.removeAttribute("hidden");
+      reactBtn.setAttribute("aria-expanded", "true");
       if (!reactionsPopover.dataset.loaded) {
         reactionsPopover.dataset.loaded = "1";
         populateReactionsPopover(reactionsPopover, post, reactBtn);
       }
-    }
-
-    function hideReactionsPopoverDelayed() {
-      reactHideTimer = setTimeout(() => {
-        reactionsPopover.setAttribute("hidden", "");
-      }, 250);
-    }
-
-    reactWrap.addEventListener("mouseenter", showReactionsPopover);
-    reactWrap.addEventListener("mouseleave", hideReactionsPopoverDelayed);
-    reactionsPopover.addEventListener("mouseenter", () => clearTimeout(reactHideTimer));
-    reactionsPopover.addEventListener("mouseleave", hideReactionsPopoverDelayed);
-    reactBtn.addEventListener("click", () => {
-      reactionsPopover.setAttribute("hidden", "");
-      handlePostReact(reactBtn, post, "heart", reactionsPopover);
     });
 
     reactWrap.append(reactBtn, reactionsPopover);
@@ -1670,22 +2185,79 @@
     `;
     replyButton.addEventListener("click", () => openReplyPanelForPost(post));
 
-    actionsRight.append(reactWrap, replyButton);
-    actions.append(actionsLeft, actionsRight);
+    const stats = document.createElement("div");
+    stats.className = "ld-post-actions-stats";
+    stats.append(reactWrap);
+    if (postInfos) stats.append(postInfos);
+    const divider = document.createElement("span");
+    divider.className = "ld-post-actions-divider";
+    divider.textContent = "|";
+    divider.setAttribute("aria-hidden", "true");
+    actionsRight.append(replyButton);
+    actions.append(stats, divider, actionsLeft, actionsRight);
 
     if (replyToTab) {
       article.append(header, replyToTab, body);
     } else {
       article.append(header, body);
     }
-    if (postInfos) {
-      article.appendChild(postInfos);
-    }
     article.appendChild(actions);
+    if (!post.deleted && (post.can_boost || post.boosts?.length)) {
+      const boosts = document.createElement("div");
+      boosts.className = "ld-post-boosts";
+      boosts.addEventListener("ld-native-boosts-change", () => {
+        try {
+          const data = JSON.parse(boosts.getAttribute("data-ld-native-boosts"));
+          if (Array.isArray(data?.boosts) && typeof data.can_boost === "boolean") {
+            post.boosts = data.boosts;
+            post.can_boost = data.can_boost;
+          }
+        } catch {}
+      });
+      article.append(boosts);
+      queueMicrotask(() => {
+        if (!boosts.isConnected) return;
+        boosts.setAttribute("data-ld-native-post", JSON.stringify(post));
+        boosts.dispatchEvent(new Event("ld-render-native-post", { bubbles: true }));
+        boosts.removeAttribute("data-ld-native-post");
+      });
+    }
     return article;
   }
 
+  function renderPostReactionButton(button, post) {
+    const reactions = Array.isArray(post.reactions) ? post.reactions : [];
+    const like = post.actions_summary?.find((action) => action.id === 2);
+    const reacted = Boolean(post.current_user_reaction || reactions.some((r) => r.reacted) || like?.acted);
+    const count = post.reaction_users_count ?? (reactions.reduce((sum, r) => sum + (r.count || 0), 0) || post.like_count || like?.count || 0);
+    button.classList.toggle("ld-post-react-btn--reacted", reacted);
+    button.setAttribute("aria-label", `选择表情反应${count ? `，共 ${count} 个` : ""}`);
+    button.title = "选择表情反应，再次选择已用表情可取消";
+    const icons = document.createElement("span");
+    icons.className = "ld-post-react-btn-icon";
+    icons.setAttribute("aria-hidden", "true");
+    const popular = reactions.filter((r) => r.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
+    for (const reaction of popular) {
+      const img = document.createElement("img");
+      img.src = buildReactionEmojiSrc(reaction.id);
+      img.alt = `:${reaction.id}:`;
+      icons.append(img);
+    }
+    if (!popular.length) icons.innerHTML = buildReactHeartIconSvg(reacted);
+    button.replaceChildren(icons);
+    if (count > 0) {
+      const counter = document.createElement("span");
+      counter.className = "ld-post-react-count";
+      counter.textContent = String(count);
+      button.append(counter);
+    }
+  }
+
   function handleDrawerBodyScroll() {
+    if (state.reading) {
+      state.reading.lastActivity = performance.now();
+      state.reading.onscreen.clear();
+    }
     maybeLoadMorePosts();
   }
 
@@ -1743,6 +2315,7 @@
     }
 
     state.replyPanel.hidden = !isOpen;
+    syncReplyUI();
     forEachReplyTriggerButton((button) => {
       button.setAttribute("aria-expanded", String(isOpen));
     });
@@ -2491,9 +3064,71 @@
     state.loadMoreStatus.textContent = "已加载完当前主题内容";
   }
 
+  function initializePostCarousels(body) {
+    for (const grid of body.querySelectorAll('.d-image-grid[data-mode="carousel"]')) {
+      if (grid.classList.contains("ld-carousel")) {
+        continue;
+      }
+
+      const items = [...new Set([...grid.querySelectorAll("img:not(.emoji):not(.thumbnail):not(.ytp-thumbnail-image)")]
+        .filter((img) => img.closest(".d-image-grid") === grid)
+        .map((img) => img.closest(".lightbox-wrapper") || img.closest("a") || img))];
+      if (!items.length) {
+        continue;
+      }
+
+      grid.classList.add("ld-carousel");
+      grid.setAttribute("role", "group");
+      grid.setAttribute("aria-label", "图片轮播");
+      const slides = items.map((item) => {
+        const slide = document.createElement("div");
+        slide.className = "ld-carousel-slide";
+        slide.append(item);
+        return slide;
+      });
+      const controls = document.createElement("div");
+      controls.className = "ld-carousel-controls";
+      let activeIndex = 0;
+      const show = (index) => {
+        activeIndex = (index + slides.length) % slides.length;
+        slides.forEach((slide, i) => { slide.hidden = i !== activeIndex; });
+        dots.forEach((dot, i) => dot.setAttribute("aria-pressed", String(i === activeIndex)));
+      };
+      const button = (label, text, onClick) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.setAttribute("aria-label", label);
+        element.textContent = text;
+        element.addEventListener("click", onClick);
+        return element;
+      };
+      const dots = slides.map((slide, i) => button(`第 ${i + 1} 张，共 ${slides.length} 张`, "●", () => show(i)));
+      controls.append(
+        button("上一张图片", "‹", () => show(activeIndex - 1)),
+        ...dots,
+        button("下一张图片", "›", () => show(activeIndex + 1))
+      );
+      controls.hidden = slides.length < 2;
+      grid.replaceChildren(...slides, controls);
+      grid.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        show(activeIndex + (event.key === "ArrowLeft" ? -1 : 1));
+      });
+      show(0);
+    }
+  }
+
   function handleDrawerRootClick(event) {
     const target = event.target;
     if (!(target instanceof Element)) {
+      return;
+    }
+
+    if (target.closest(".ld-native-body")) {
       return;
     }
 
@@ -2704,6 +3339,7 @@
   }
 
   function renderIframeFallback(topicUrl, fallbackTitle, error, forcedIframe = false) {
+    stopReading();
     setIframeModeEnabled(true);
     cancelLoadMoreRequest();
     cancelReplyRequest();
@@ -2778,7 +3414,7 @@
   }
 
   async function handleLatestRepliesRefresh() {
-    if (!canRefreshLatestReplies()) {
+    if (!state.currentUrl || state.isRefreshingLatestReplies || state.abortController) {
       return;
     }
 
@@ -2879,13 +3515,13 @@
       return;
     }
 
-    const shouldShow = canRefreshLatestReplies();
+    const shouldShow = Boolean(state.currentUrl) && state.settingsPanel?.hidden && state.replyPanel?.hidden;
     const isRefreshing = state.isRefreshingLatestReplies;
     state.latestRepliesRefreshButton.hidden = !shouldShow;
-    state.latestRepliesRefreshButton.disabled = !shouldShow || isRefreshing;
+    state.latestRepliesRefreshButton.disabled = !shouldShow || isRefreshing || Boolean(state.abortController);
     state.latestRepliesRefreshButton.classList.toggle("is-refreshing", isRefreshing);
-    const label = isRefreshing ? "刷新中..." : "刷新最新回复";
-    state.latestRepliesRefreshButton.setAttribute("data-tooltip", label);
+    const label = isRefreshing ? "刷新中..." : "刷新当前帖子";
+    state.latestRepliesRefreshButton.title = label;
     state.latestRepliesRefreshButton.setAttribute("aria-label", label);
   }
 
@@ -3052,6 +3688,8 @@
       canonical: true,
       trackVisit: true
     }).then((topic) => {
+      const entry = state.topicCache.get(getTopicCacheKey(topicUrl));
+      if (entry) entry.currentViewTracked = true;
       if (state.currentTopicTrackingKey === trackingKey) {
         state.currentViewTracked = true;
       }
@@ -3066,6 +3704,12 @@
     state.currentTrackRequest = request;
     state.currentTrackRequestKey = trackingKey;
     return request;
+  }
+
+  function trackCurrentTopicVisit() {
+    if (state.settings.trackPreviewVisit !== "on" || state.currentViewTracked ||
+        !state.currentTopic || state.currentTopic.__sidePeekIframeShell) return;
+    ensureTrackedTopicVisit(state.currentUrl, state.currentTopicIdHint, state.abortController?.signal).catch(() => {});
   }
 
   function toTopicPostsJsonUrl(topicUrl, postIds, topicIdHint = null) {
@@ -3155,7 +3799,7 @@
     for (const r of available) {
       const existing = reactions.find((rx) => rx.id === r.id);
       const count = existing?.count || 0;
-      const isActive = existing?.reacted === true
+      const isActive = post.current_user_reaction?.id === r.id || existing?.reacted === true
         || (r.id === "heart" && (post.actions_summary?.find((a) => a.id === 2)?.acted === true));
 
       const btn = document.createElement("button");
@@ -3163,6 +3807,7 @@
       btn.className = "ld-reaction-btn" + (isActive ? " ld-reaction-btn--active" : "");
       btn.setAttribute("aria-label", r.id + (count > 0 ? ` (${count})` : ""));
       btn.title = r.id;
+      btn.setAttribute("aria-pressed", String(isActive));
 
       const img = document.createElement("img");
       img.alt = `:${r.id}:`;
@@ -3180,7 +3825,8 @@
 
       btn.append(img, countEl);
       btn.addEventListener("click", () => {
-        popoverEl.setAttribute("hidden", "");
+        closeAllPopovers();
+        reactBtn.focus();
         handlePostReact(reactBtn, post, r.id, popoverEl);
       });
 
@@ -3274,7 +3920,7 @@
     return `/images/emoji/${emojiSet}/${encodeURIComponent(reactionId)}.png`;
   }
 
-  function showToast(message, type = "info", duration = 2200) {
+  function showToast(message, type = "info", duration = 2200, dismissible = false) {
     if (!state.toastStack || !message) {
       return;
     }
@@ -3291,97 +3937,54 @@
       toast.classList.remove("is-visible");
       window.setTimeout(() => toast.remove(), 180);
     };
+    if (dismissible) {
+      toast.classList.add("ld-toast-dismissible");
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "ld-toast-close";
+      close.setAttribute("aria-label", "关闭预览提示");
+      close.textContent = "×";
+      close.addEventListener("click", remove);
+      toast.append(close);
+    }
     window.setTimeout(remove, Math.max(900, Number(duration) || 2200));
   }
 
   async function handlePostReact(reactBtn, post, reactionId, popoverEl) {
-    if (reactBtn.disabled) {
-      return;
-    }
-
+    if (reactBtn.disabled) return;
     reactBtn.disabled = true;
-
     try {
       const reactions = Array.isArray(post.reactions) ? post.reactions : [];
-      const existing = reactions.find((r) => r.id === reactionId);
-      const wasReacted = existing?.reacted === true;
-      const legacyLikeAction = !reactions.length && Array.isArray(post.actions_summary)
-        ? post.actions_summary.find((a) => a.id === 2)
-        : null;
-      const wasLegacyLiked = legacyLikeAction?.acted === true;
-      const isUndo = wasReacted || (reactionId === "heart" && wasLegacyLiked);
-
-      const updated = await performToggleReaction(post.id, reactionId);
-
+      const like = post.actions_summary?.find((action) => action.id === 2);
+      const previous = post.current_user_reaction?.id || reactions.find((r) => r.reacted)?.id || (like?.acted ? "heart" : null);
+      const undo = previous === reactionId;
+      const updated = await performToggleReaction(post.id, reactionId, undo);
       if (Array.isArray(updated?.reactions)) {
         post.reactions = updated.reactions;
-        post.like_count = updated.reactions.reduce((sum, r) => sum + (r.count || 0), 0);
-        if (legacyLikeAction) {
-          legacyLikeAction.acted = !isUndo;
-          legacyLikeAction.count = Math.max(0, (legacyLikeAction.count || 0) + (isUndo ? -1 : 1));
-        }
+        post.current_user_reaction = updated.current_user_reaction === undefined
+          ? (undo ? null : { id: reactionId, can_undo: true }) : updated.current_user_reaction;
+        post.reaction_users_count = updated.reaction_users_count
+          ?? updated.reactions.reduce((sum, r) => sum + (r.count || 0), 0);
       } else {
-        if (!Array.isArray(post.reactions)) {
-          post.reactions = [];
+        const legacyCount = post.like_count || like?.count || 0;
+        const counts = reactions.length ? reactions : legacyCount ? [{ id: "heart", type: "emoji", count: legacyCount }] : [];
+        const next = counts.map((r) => ({ ...r, reacted: false, count: Math.max(0, r.count - (r.id === previous ? 1 : 0)) }));
+        if (!undo) {
+          const selected = next.find((r) => r.id === reactionId);
+          if (selected) selected.count++;
+          else next.push({ id: reactionId, type: "emoji", count: 1 });
         }
-        if (isUndo) {
-          if (existing) {
-            existing.reacted = false;
-            existing.count = Math.max(0, (existing.count || 1) - 1);
-          }
-        } else {
-          if (existing) {
-            existing.reacted = true;
-            existing.count = (existing.count || 0) + 1;
-          } else {
-            post.reactions.push({ id: reactionId, type: "emoji", count: 1, reacted: true });
-          }
-        }
-        post.like_count = post.reactions.reduce((sum, r) => sum + (r.count || 0), 0);
-        if (legacyLikeAction) {
-          legacyLikeAction.acted = !wasLegacyLiked;
-          legacyLikeAction.count = Math.max(0, (legacyLikeAction.count || 0) + (isUndo ? -1 : 1));
-        }
+        post.reactions = next.filter((r) => r.count > 0);
+        post.current_user_reaction = undo ? null : { id: reactionId, can_undo: true };
+        post.reaction_users_count = Math.max(0, (post.reaction_users_count ?? (reactions.reduce((sum, r) => sum + (r.count || 0), 0) || post.like_count || like?.count || 0)) + (undo ? -1 : previous ? 0 : 1));
       }
-
-      let nowReacted = post.reactions?.some((r) => r.reacted) || false;
-      if (reactionId === "heart") {
-        const heartReacted = post.reactions?.some((r) => r.id === "heart" && r.reacted === true) || false;
-        const heartActionReacted = Array.isArray(post.actions_summary)
-          ? post.actions_summary.find((a) => a.id === 2)?.acted === true
-          : false;
-        // Some APIs return reaction counts without reliable `reacted`; heart toggle result is authoritative.
-        nowReacted = heartReacted || heartActionReacted || !isUndo;
+      post.like_count = post.reaction_users_count;
+      if (like) {
+        like.acted = post.current_user_reaction?.id === "heart";
+        like.count = post.reactions.find((r) => r.id === "heart")?.count || 0;
       }
-      const newCount = post.like_count || 0;
-
-      reactBtn.classList.toggle("ld-post-react-btn--reacted", nowReacted);
-      reactBtn.setAttribute("aria-label", nowReacted ? "取消反应" : "添加反应");
-      const iconEl = reactBtn.querySelector(".ld-post-react-btn-icon");
-      if (iconEl) {
-        iconEl.innerHTML = buildReactHeartIconSvg(nowReacted);
-      }
-
-      let countEl = reactBtn.querySelector(".ld-post-react-count");
-      if (newCount > 0) {
-        if (countEl) {
-          countEl.textContent = String(newCount);
-        } else {
-          countEl = document.createElement("span");
-          countEl.className = "ld-post-react-count";
-          countEl.textContent = String(newCount);
-          reactBtn.appendChild(countEl);
-        }
-      } else if (countEl) {
-        countEl.remove();
-      }
-
-      if (popoverEl && !popoverEl.hasAttribute("hidden")) {
-        delete popoverEl.dataset.loaded;
-        populateReactionsPopover(popoverEl, post, reactBtn);
-      } else if (popoverEl) {
-        delete popoverEl.dataset.loaded;
-      }
+      renderPostReactionButton(reactBtn, post);
+      if (popoverEl) delete popoverEl.dataset.loaded;
     } catch (error) {
       showToast(`反应失败：${error?.message || "请求未完成"}`, "error");
     } finally {
@@ -3389,7 +3992,7 @@
     }
   }
 
-  async function performToggleReaction(postId, reactionId) {
+  async function performToggleReaction(postId, reactionId, undo) {
     const csrfToken = getCsrfToken();
     if (!csrfToken) {
       throw new Error("未找到 CSRF 令牌");
@@ -3409,8 +4012,8 @@
     );
 
     if (!response.ok) {
-      if (reactionId === "heart") {
-        return performLegacyLikeToggle(postId);
+      if (reactionId === "heart" && [404, 405].includes(response.status)) {
+        return performLegacyLikeToggle(postId, undo);
       }
       const data = await response.json().catch(() => null);
       throw new Error(
@@ -3423,14 +4026,16 @@
     return response.json().catch(() => null);
   }
 
-  async function performLegacyLikeToggle(postId) {
+  async function performLegacyLikeToggle(postId, undo) {
     const csrfToken = getCsrfToken();
     if (!csrfToken) {
       throw new Error("未找到 CSRF 令牌");
     }
 
-    const likeRes = await fetch(`${location.origin}/post_actions`, {
-      method: "POST",
+    const likeRes = await fetch(undo
+      ? `${location.origin}/post_actions/${postId}?post_action_type_id=2`
+      : `${location.origin}/post_actions`, {
+      method: undo ? "DELETE" : "POST",
       credentials: "include",
       headers: {
         Accept: "application/json",
@@ -3438,31 +4043,14 @@
         "X-Requested-With": "XMLHttpRequest",
         "X-CSRF-Token": csrfToken
       },
-      body: new URLSearchParams({ id: String(postId), post_action_type_id: "2", flag_topic: "false" })
+      body: undo ? undefined : new URLSearchParams({ id: String(postId), post_action_type_id: "2", flag_topic: "false" })
     });
 
     if (likeRes.ok) {
       return null;
     }
 
-    const unlikeRes = await fetch(
-      `${location.origin}/post_actions/${postId}?post_action_type_id=2`,
-      {
-        method: "DELETE",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          "X-CSRF-Token": csrfToken
-        }
-      }
-    );
-
-    if (!unlikeRes.ok) {
-      throw new Error(`操作失败：${unlikeRes.status}`);
-    }
-
-    return null;
+    throw new Error(`操作失败：${likeRes.status}`);
   }
 
   async function handleCopyPostLink(btn, post) {
@@ -3735,7 +4323,7 @@
     state.root?.querySelectorAll(".ld-reactions-popover, .ld-flag-popover, .ld-post-replies-popover").forEach((p) => {
       p.setAttribute("hidden", "");
     });
-    state.root?.querySelectorAll(".ld-post-info-item--replies-trigger").forEach((btn) => {
+    state.root?.querySelectorAll(".ld-post-info-item--replies-trigger, .ld-post-react-btn").forEach((btn) => {
       btn.setAttribute("aria-expanded", "false");
     });
   }
@@ -4026,7 +4614,7 @@
 
     url.hash = "";
     url.search = "";
-    url.pathname = parsed?.topicPath || stripTrailingSlash(url.pathname);
+    url.pathname = parsed?.destinationPath || stripTrailingSlash(url.pathname);
 
     return url.toString().replace(/\/$/, "");
   }
@@ -4187,6 +4775,24 @@
     badge.title = "楼主";
     badge.setAttribute("aria-label", "楼主");
     return badge;
+  }
+
+  function renderTopicMeta(topic, loadedPostCount) {
+    const text = document.createElement("span");
+    text.textContent = buildTopicMeta(topic, loadedPostCount);
+    state.meta.replaceChildren(text);
+    if (!Array.isArray(topic.tags)) return;
+    const tags = document.createElement("span");
+    tags.className = "ld-tag-list";
+    for (const tag of topic.tags) {
+      const label = getTagLabel(tag);
+      if (!label) continue;
+      const item = document.createElement("span");
+      item.className = "ld-tag";
+      item.textContent = label;
+      tags.append(item);
+    }
+    if (tags.childElementCount) state.meta.append(tags);
   }
 
   function buildTopicMeta(topic, loadedPostCount) {
@@ -4627,68 +5233,12 @@
   }
 
   function buildPostInfos(post) {
-    const items = [];
-
-    if (typeof post.reads === "number" && post.reads > 0) {
-      items.push({
-        kind: "stat",
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-        count: post.reads,
-        label: "阅读"
-      });
-    }
-
-    const likeCount = typeof post.like_count === "number"
-      ? post.like_count
-      : (Array.isArray(post.reactions) ? post.reactions.reduce((s, r) => s + (r.count || 0), 0) : 0);
-    if (likeCount > 0) {
-      items.push({
-        kind: "stat",
-        icon: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`,
-        count: likeCount,
-        label: "点赞"
-      });
-    }
-
-    if (typeof post.reply_count === "number" && post.reply_count > 0) {
-      items.push({
-        kind: "replies",
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
-        count: post.reply_count,
-        label: "回复"
-      });
-    }
-
-    if (!items.length) {
-      return null;
-    }
-
-    const infos = document.createElement("div");
-    infos.className = "ld-post-infos";
-
-    for (const item of items) {
-      if (item.kind === "replies") {
-        infos.appendChild(buildPostReplyStatWrap(post, item));
-        continue;
-      }
-
-      const span = document.createElement("span");
-      span.className = "ld-post-info-item";
-      span.setAttribute("title", item.label);
-
-      const iconSpan = document.createElement("span");
-      iconSpan.className = "ld-post-info-icon";
-      iconSpan.setAttribute("aria-hidden", "true");
-      iconSpan.innerHTML = item.icon;
-
-      const countSpan = document.createElement("span");
-      countSpan.textContent = String(item.count);
-
-      span.append(iconSpan, countSpan);
-      infos.appendChild(span);
-    }
-
-    return infos;
+    if (!(post.reply_count > 0)) return null;
+    return buildPostReplyStatWrap(post, {
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+      count: post.reply_count,
+      label: "回复"
+    });
   }
 
   function buildPostMeta(post) {
@@ -4782,6 +5332,9 @@
       if (settings.floatingReplyButton !== "off" && settings.floatingReplyButton !== "on") {
         settings.floatingReplyButton = DEFAULT_SETTINGS.floatingReplyButton;
       }
+      for (const key of ["showTrustStatus", "listAlignLeft"]) {
+        if (settings[key] !== "on" && settings[key] !== "off") settings[key] = DEFAULT_SETTINGS[key];
+      }
 
       settings.replyPanelPosition = normalizeReplyPanelPosition(settings.replyPanelPosition);
       settings.postBodyFontSize = clampPostBodyFontSize(settings.postBodyFontSize);
@@ -4819,11 +5372,17 @@
   }
 
   function syncReplyUI() {
+    syncLatestRepliesRefreshUI();
     const hasTopic = Boolean(state.currentTopic?.id);
     const isTargetedReply = Number.isFinite(state.replyTargetPostNumber);
     const isReplyUploading = state.replyUploadPendingCount > 0;
     const hasCurrentUrl = Boolean(state.currentUrl);
     const isSettingsOpen = !state.settingsPanel?.hidden;
+
+    if (state.topFabButton) {
+      state.topFabButton.hidden = !hasCurrentUrl || isSettingsOpen
+        || state.root.classList.contains(IFRAME_MODE_CLASS) || !state.replyPanel?.hidden;
+    }
 
     if (state.replyToggleButton) {
       state.replyToggleButton.hidden = !hasCurrentUrl;
@@ -4970,6 +5529,8 @@
       return;
     }
 
+    cacheCurrentTopic();
+    if (key === "trackPreviewVisit" || key === "previewMode") stopReading();
     state.settings[key] = key === "postBodyFontSize"
       ? clampPostBodyFontSize(target.value)
       : target.value;
@@ -5000,11 +5561,19 @@
       return;
     }
 
+    if (key === "showTrustStatus" || key === "listAlignLeft") {
+      if (key === "showTrustStatus") syncTrustStatusVisibility();
+      else applyDrawerMode();
+      return;
+    }
+
     refreshCurrentView();
     setSettingsPanelOpen(false);
   }
 
   function resetSettings() {
+    cacheCurrentTopic();
+    stopReading();
     state.settings = { ...DEFAULT_SETTINGS };
     syncSettingsUI();
     saveSettings();
@@ -5012,6 +5581,7 @@
     applyDrawerWidth();
     applyDrawerMode();
     applyReplyPanelPosition();
+    syncTrustStatusVisibility();
     syncReplyUI();
     refreshCurrentView();
     setSettingsPanelOpen(false);
@@ -5042,6 +5612,8 @@
   function applyDrawerMode() {
     const isOverlay = state.settings.drawerMode === "overlay";
     document.body.classList.toggle("ld-drawer-mode-overlay", isOverlay);
+    document.body.classList.toggle("ld-list-align-left", state.settings.listAlignLeft === "on");
+    scheduleTopicTrackerPositionSync();
   }
 
   function clampDrawerWidth(value) {
@@ -5130,17 +5702,28 @@
   }
 
   function updateSettingsPopoverPosition() {
+    syncNativeHeaderLayout();
     if (!state.header || !state.settingsPanel) {
       return;
     }
 
     const offset = `${state.header.offsetHeight + 8}px`;
-    state.root.style.setProperty("--ld-settings-top", offset);
     state.root.style.setProperty("--ld-reply-panel-top", offset);
 
     if (!state.isReplyPanelDragging) {
       applyReplyPanelPosition(true);
     }
+  }
+
+  function syncNativeHeaderLayout() {
+    const header = document.querySelector(".d-header");
+    const actions = state.root?.querySelector(".ld-drawer-header-actions");
+    const height = header?.getBoundingClientRect().height || 0;
+    document.body.classList.toggle("ld-native-header-layout", height > 0);
+    if (!height || !actions) return;
+    const style = document.documentElement.style;
+    style.setProperty("--ld-native-header-height", `${height}px`);
+    style.setProperty("--ld-header-actions-width", `${Math.ceil(actions.getBoundingClientRect().width) + 24}px`);
   }
 
   function scheduleTopicTrackerPositionSync() {
@@ -5261,11 +5844,12 @@
     };
 
     const observer = new MutationObserver((mutations) => {
-      if (mutations.every((mutation) => mutation.target instanceof Element && mutation.target.closest?.(`#${ROOT_ID}`))) {
+      if (mutations.every((mutation) => mutation.target instanceof Element && mutation.target.closest?.(`#${ROOT_ID}, #ld-trust-status, #${IMAGE_PREVIEW_ROOT_ID}`))) {
         return;
       }
 
       scheduleTopicTrackerPositionSync();
+      queuePrefetchScan();
       if (location.href !== state.lastLocation) {
         handleLocationChange();
       } else if (state.currentUrl) {
@@ -5273,10 +5857,12 @@
       }
     });
 
-    const observeTarget = document.querySelector(MAIN_CONTENT_SELECTOR) || document.body;
+    const observeTarget = document.body;
     observer.observe(observeTarget, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["href", "class", "target", "download"]
     });
   }
 
@@ -5288,6 +5874,7 @@
     state.lastLocation = location.href;
     clearTopicTrackerRefreshSync();
     scheduleTopicTrackerPositionSync();
+    queuePrefetchScan();
 
     if (!hasPreviewableTopicLinks()) {
       closeDrawer();

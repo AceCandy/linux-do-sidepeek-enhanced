@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Linux.do SidePeek Enhanced",
-  "version": "0.7.2",
-  "description": "基于 BobDLA/Linux.do SidePeek 的二次开发版：右侧抽屉预览、顶部工具栏、主题缓存与阅读位置恢复。",
+  "version": "0.8.0",
+  "description": "基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。",
   "browser_specific_settings": {
     "gecko": {
       "id": "@linux-do-sidepeek",
@@ -14,9 +14,19 @@
     }
   },
   "host_permissions": [
-    "https://linux.do/t/*"
+    "https://linux.do/t/*",
+    "https://connect.linux.do/*"
   ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
   "content_scripts": [
+    {
+      "matches": ["https://linux.do/*"],
+      "js": ["src/native-renderer.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
     {
       "matches": [
         "https://linux.do/*"

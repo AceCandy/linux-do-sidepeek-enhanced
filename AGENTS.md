@@ -7,6 +7,7 @@
 - 运行方式：Chrome 直接加载仓库目录
 - 当前没有 `package.json`、Node 构建器、Lint 配置或自动化测试框架
 - 当前提供最小静态检查与打包产物验证脚本，供本地和 GitHub Actions 复用
+- 左侧信任等级面板读取 `connect.linux.do`；扩展通过 `src/background.js` 获取固定页面，油猴版通过 `GM_xmlhttpRequest` 获取。Chrome 使用 service worker，Firefox 发布产物转换为后台 scripts。
 
 ## 仓库结构
 ```text
@@ -46,6 +47,7 @@ linux-do-sidepeek/
 - 不要主动引入 npm、TypeScript、Webpack、Vite、ESBuild、Prettier、ESLint、Jest、Vitest 等工具，除非用户明确要求
 - 如果新增文件，先确认 `manifest.json` 是否需要同步声明或引用
 - 保持最小必要改动；不要为了“现代化”而重写现有架构
+- 油猴产物 `userscript/linuxdo-sidepeek.user.js` 自动生成，禁止直接手改；公共逻辑修改 `src/`，油猴元数据和存储差异修改 `userscript/template.js`，随后运行 `node scripts/build-userscript.cjs`。扩展仍然零构建。
 
 ## Build / Lint / Test Commands
 
@@ -78,6 +80,8 @@ bash scripts/check.sh
 执行内容：
 - `node --check src/content.js`
 - `jq . manifest.json >/dev/null`
+- `node scripts/build-userscript.cjs --check`：只读校验完整油猴产物与源码一致，版本取自 `manifest.json`
+- `node scripts/check-userscript.cjs`：生成稳定性、边界保护、CSS 转义、油猴存储迁移及失败降级
 
 ### Test
 当前没有自动化测试命令。
@@ -138,7 +142,11 @@ bash scripts/agent-smoke.sh --cdp-port 9222
 - `manifest.json`：声明 MV3 扩展信息、匹配站点与 content script 注入配置
 - `src/content.js`：整个功能集中在一个 IIFE 中，负责状态、事件委托、抽屉 UI、网络请求、路由监听与设置持久化
 - `src/content.css`：全部样式集中在单文件，选择器统一以 `ld-` 前缀隔离站点样式
+- `src/background.js`：仅接受本站顶层内容脚本的信任等级读取消息；不得扩展为任意 URL 代理
+- `src/native-renderer.js`：MAIN world 桥，复用 Discourse 正文和 Boost 组件，并读取原站表情配置；只处理抽屉固定节点事件，不提供任意请求能力。Boost 写入由原站组件在用户操作后执行。切帖、关闭和 pagehide 必须销毁实例，失败保留原有正文。油猴内嵌同一文件，修改后必须同步。
 - 当前实现采用“单状态对象 + 一组函数”的组织方式，而不是类、模块分层或多文件拆分
+- 状态面板回归：`node scripts/check-status.cjs`；带固定页面浏览器验证：`node scripts/check-status.cjs --browser`（需要 agent-browser，会自行关闭测试浏览器）。状态功能修改需同步独立油猴发行版。
+- 预取与阅读回归：`node scripts/check-preview.cjs`、`node scripts/check-preview-browser.cjs`；100 主题缓存回归：`node scripts/check-cache.cjs`。阅读上报只允许实际可见楼层，预取不得计入已读；同一任务中已确认的功能和参数应继续实现，不能因新增子功能而遗漏原有目标。
 
 ## JavaScript 代码风格
 

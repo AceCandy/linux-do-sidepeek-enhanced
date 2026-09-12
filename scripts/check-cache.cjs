@@ -19,22 +19,44 @@ const context = {
 };
 assert.equal((source.match(/^  init\(\);$/gm) || []).length, 1);
 vm.runInNewContext(source.replace(/^  init\(\);$/m,
-  "  globalThis.test = { state, cacheCurrentTopic, getCachedTopic, pruneTopicCache, saveSettings, readPersistedSettings };"), context);
+  "  globalThis.test = { state, cacheCurrentTopic, getCachedTopic, getTopicViewKey, normalizeTopicUrl, pruneTopicCache, saveSettings, readPersistedSettings, loadSettings };"), context);
 const api = context.test;
-for (let id = 1; id <= 13; id++) {
+assert.equal(api.state.settings.showTrustStatus, "on");
+assert.equal(api.state.settings.listAlignLeft, "off");
+storage.set("ld-drawer-settings-v1", JSON.stringify({ showTrustStatus: "off", listAlignLeft: "on" }));
+assert.equal(api.loadSettings().showTrustStatus, "off");
+assert.equal(api.loadSettings().listAlignLeft, "on");
+storage.set("ld-drawer-settings-v1", JSON.stringify({ showTrustStatus: "invalid", listAlignLeft: true }));
+assert.equal(api.loadSettings().showTrustStatus, "on");
+assert.equal(api.loadSettings().listAlignLeft, "off");
+storage.clear();
+for (let id = 1; id <= 101; id++) {
   api.state.currentUrl = `https://linux.do/t/test/${id}`;
   api.state.currentTopic = { id };
   api.state.drawerBody = { scrollTop: id * 10 };
   api.cacheCurrentTopic();
 }
-assert.equal(api.state.topicCache.size, 12);
+assert.equal(api.state.topicCache.size, 100);
 assert.equal(api.getCachedTopic("https://linux.do/t/test/1"), null);
-assert.equal(api.getCachedTopic("https://linux.do/t/test/2#reply").scrollTop, 20);
-api.state.currentUrl = "https://linux.do/t/test/14";
-api.state.currentTopic = { id: 14 };
+assert.equal(api.getCachedTopic("https://linux.do/t/test/2#reply").views.get(api.getTopicViewKey("https://linux.do/t/2")).scrollTop, 20);
+api.state.currentUrl = "https://linux.do/t/test/102";
+api.state.currentTopic = { id: 102 };
 api.cacheCurrentTopic();
 assert.equal(api.getCachedTopic("https://linux.do/t/test/3"), null);
 assert.equal(api.getCachedTopic("https://linux.do/t/test/2").topic.id, 2);
+api.state.currentUrl = "https://linux.do/t/2/80";
+api.state.currentTopic = { id: 2 };
+api.state.currentResolvedTargetPostNumber = 80;
+api.state.drawerBody.scrollTop = 800;
+api.cacheCurrentTopic();
+const shared = api.getCachedTopic("https://linux.do/t/another-slug/2");
+assert.equal(api.state.topicCache.size, 100);
+assert.equal(shared.views.get(api.getTopicViewKey("https://linux.do/t/2")).scrollTop, 20);
+assert.equal(shared.views.get(api.getTopicViewKey("https://linux.do/t/2/80")).scrollTop, 800);
+assert.equal(api.normalizeTopicUrl(new URL("https://linux.do/t/test/2/80?x=1#reply")), "https://linux.do/t/test/2/80");
+api.state.currentTopic = { id: 2, __sidePeekIframeShell: true };
+api.cacheCurrentTopic();
+assert.equal(api.getCachedTopic("https://linux.do/t/2").topic.__sidePeekIframeShell, undefined);
 now += 600_001;
 api.pruneTopicCache();
 assert.equal(api.state.topicCache.size, 0);
