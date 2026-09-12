@@ -1636,7 +1636,7 @@
       let targetedTopic = null;
       let latestRepliesTopic = null;
 
-      const pending = state.prefetchRequests.get(getTopicCacheKey(topicUrl));
+      const pending = !state.isRefreshingLatestReplies && state.prefetchRequests.get(getTopicCacheKey(topicUrl));
       let fetchedAt = Date.now();
       if (options.cachedTopic?.topic) {
         topic = options.cachedTopic.topic;
@@ -1802,25 +1802,11 @@
       state.drawerBody.scrollTop = previousScrollTop;
     }
 
-    updateTopicLoadMoreSummary();
     updateLoadMoreStatus();
     syncReplyUI();
     queueAutoLoadCheck();
     cacheCurrentTopic();
     return true;
-  }
-
-  function updateTopicLoadMoreSummary() {
-    const summary = state.content?.querySelector('[data-role="load-more-summary"]');
-    if (!summary || !state.currentTopic) {
-      return;
-    }
-
-    const loadedCount = (state.currentTopic.post_stream?.posts || []).length;
-    const totalCount = Number(state.currentTopic.posts_count || loadedCount);
-    summary.textContent = hasMoreTopicPosts(state.currentTopic)
-      ? `当前已加载 ${loadedCount} / ${totalCount} 条帖子，继续下滑会自动加载更多回复。`
-      : `当前已加载完整主题，共 ${totalCount} 条帖子。`;
   }
 
   function buildTopicView(topic, viewModel) {
@@ -1845,7 +1831,6 @@
 
     wrapper.appendChild(postList);
 
-    const totalPosts = topic?.posts_count || basePosts.length;
     const footer = document.createElement("div");
     footer.className = "ld-topic-footer";
 
@@ -1869,16 +1854,6 @@
       const note = document.createElement("div");
       note.className = "ld-topic-note";
       note.textContent = authorFilterNote;
-      footer.appendChild(note);
-    }
-
-    if (viewModel.hasHiddenPosts) {
-      const note = document.createElement("div");
-      note.className = "ld-topic-note";
-      note.dataset.role = "load-more-summary";
-      note.textContent = viewModel.canAutoLoadMore
-        ? `当前已加载 ${visiblePosts.length} / ${totalPosts} 条帖子，继续下滑会自动加载更多回复。`
-        : `当前抽屉预览了 ${visiblePosts.length} / ${totalPosts} 条帖子，完整内容可点右上角“新标签打开”。`;
       footer.appendChild(note);
     }
 
@@ -1917,7 +1892,7 @@
         posts,
         mode: "targeted",
         targetPostNumber: targetSpec.targetPostNumber,
-        canAutoLoadMore: false,
+        canAutoLoadMore: true,
         hasHiddenPosts: moreAvailable
       }, topic);
     }
@@ -1926,7 +1901,7 @@
       return applyAuthorFilterToViewModel({
         posts,
         mode: "default",
-        canAutoLoadMore: !targetSpec?.hasTarget,
+        canAutoLoadMore: true,
         hasHiddenPosts: moreAvailable
       }, topic);
     }
@@ -2939,7 +2914,7 @@
       return;
     }
 
-    if (state.settings.postMode === "first" || state.settings.replyOrder === "latestFirst" || state.currentTargetSpec?.hasTarget || state.isLoadingMorePosts || !hasMoreTopicPosts(state.currentTopic)) {
+    if (!buildTopicViewModel(state.currentTopic, state.currentLatestRepliesTopic, state.currentTargetSpec).canAutoLoadMore || state.isLoadingMorePosts || !hasMoreTopicPosts(state.currentTopic)) {
       updateLoadMoreStatus();
       return;
     }
@@ -2959,7 +2934,7 @@
   }
 
   async function loadMorePosts() {
-    if (!state.currentTopic || state.isLoadingMorePosts || state.currentTargetSpec?.hasTarget) {
+    if (!state.currentTopic || state.isLoadingMorePosts || !buildTopicViewModel(state.currentTopic, state.currentLatestRepliesTopic, state.currentTargetSpec).canAutoLoadMore) {
       return;
     }
 
@@ -2981,8 +2956,11 @@
 
     try {
       const posts = await fetchTopicPostsBatch(currentUrl, nextPostIds, controller.signal, state.currentTopicIdHint);
-      if (controller.signal.aborted || state.currentUrl !== currentUrl || !posts.length) {
+      if (controller.signal.aborted || state.currentUrl !== currentUrl) {
         return;
+      }
+      if (!posts.length) {
+        throw new Error("未获取到更多回复，请稍后重试");
       }
 
       const nextTopic = mergeTopicPreviewData(state.currentTopic, {
@@ -3041,7 +3019,7 @@
       return;
     }
 
-    if (!state.currentTopic || state.currentTargetSpec?.hasTarget) {
+    if (!state.currentTopic) {
       state.loadMoreStatus.textContent = "";
       state.loadMoreStatus.hidden = true;
       return;
@@ -3669,6 +3647,7 @@
     const topicId = topicIdHint || getTopicIdFromUrl(topicUrl);
     const response = await fetch(toTopicJsonUrl(topicUrl, { canonical, trackVisit, topicIdHint }), {
       credentials: "include",
+      cache: "no-store",
       signal,
       headers: trackVisit ? buildTopicRequestHeaders(topicId) : { Accept: "application/json" }
     });
@@ -5699,7 +5678,7 @@
       return false;
     }
 
-    if (state.settings.postMode === "first" || state.settings.replyOrder === "latestFirst" || state.currentTargetSpec?.hasTarget || !hasMoreTopicPosts(state.currentTopic)) {
+    if (!buildTopicViewModel(state.currentTopic, state.currentLatestRepliesTopic, state.currentTargetSpec).canAutoLoadMore || !hasMoreTopicPosts(state.currentTopic)) {
       return false;
     }
 

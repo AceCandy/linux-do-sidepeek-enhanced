@@ -43,7 +43,7 @@ try {
     const style = document.createElement("style");
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels };")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic };")}
   })()`);
   run(["wait", "--fn", "window.previewTest.state.topicCache.size === 6"]);
   console.log(evaluate(`(() => {
@@ -529,6 +529,48 @@ try {
     }
     container.remove();
     return '首页/顶栏搜索下拉框、完整搜索页的帖子预览及非帖子操作放行：通过';
+  })()`).trim());
+  console.log(evaluate(`(async () => {
+    const s = window.previewTest.state;
+    s.settings.postMode = 'all'; s.settings.replyOrder = 'default'; s.settings.authorFilter = 'all';
+    s.settings.trackPreviewVisit = 'off';
+    s.currentUrl = 'https://linux.do/t/test/100/25'; s.currentTopicIdHint = 100;
+    s.currentViewTracked = true;
+    let total = 41;
+    let emptyBatch = true;
+    const post = n => ({id:10000+n, post_number:n, username:'test-user', created_at:'2026-01-01T00:00:00Z',
+      cooked:'<p style="height:100px">刷新回归正文 ' + n + '</p>', actions_summary:[]});
+    window.fetch = async (input, options = {}) => {
+      const url = new URL(input, location.href);
+      const batch = url.pathname.endsWith('/posts.json');
+      if (!batch && options.cache !== 'no-store') throw Error('刷新主题请求复用了 HTTP 缓存');
+      const numbers = batch ? (emptyBatch ? [] : url.searchParams.getAll('post_ids[]').map(id => Number(id)-10000))
+        : url.pathname.endsWith('/25.json') ? Array.from({length:20}, (_,i) => i+16)
+        : Array.from({length:20}, (_,i) => i+1);
+      return new Response(JSON.stringify({id:100, title:'刷新回归', posts_count:total,
+        post_stream:{posts:numbers.map(post), stream:Array.from({length:total}, (_,i) => i+10001)}}),
+        {headers:{'content-type':'application/json'}});
+    };
+    await window.previewTest.loadTopic(s.currentUrl, '刷新回归', 100);
+    if (s.currentResolvedTargetPostNumber !== 25 || s.content.querySelectorAll('.ld-post-card').length !== 35) throw Error('楼层定位窗口错误');
+    if (s.content.textContent.includes('当前抽屉预览了')) throw Error('多余底部提示仍存在');
+    total = 43;
+    s.latestRepliesRefreshButton.click();
+    while (s.isRefreshingLatestReplies) await new Promise(resolve => setTimeout(resolve, 10));
+    if (s.currentTopic.posts_count !== 43 || s.currentResolvedTargetPostNumber !== 25) throw Error('刷新未更新帖子流或丢失定位');
+    s.drawerBody.scrollTop = s.drawerBody.scrollHeight;
+    s.drawerBody.dispatchEvent(new Event('scroll'));
+    const errorDeadline = Date.now() + 5000;
+    while (!s.loadMoreError && Date.now() < errorDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+    if (!s.loadMoreError || s.isLoadingMorePosts) throw Error('空分页响应导致加载状态卡死');
+    emptyBatch = false;
+    s.drawerBody.dispatchEvent(new Event('scroll'));
+    const deadline = Date.now() + 5000;
+    while (!s.content.querySelector('.ld-post-card[data-post-number="43"]') && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    const numbers = Array.from(s.content.querySelectorAll('.ld-post-card'), node => Number(node.dataset.postNumber));
+    if (numbers.length !== 43 || numbers.some((n,i) => n !== i+1)) throw Error('定位后分页未补齐新增回复或出现重复乱序');
+    if (location.pathname !== '/latest' || s.currentUrl !== 'https://linux.do/t/test/100/25') throw Error('刷新分页改变页面或定位链接');
+    return '定位窗口刷新后新增回复可见、空分页重试、补齐且无重复乱序：通过';
   })()`).trim());
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);
