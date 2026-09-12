@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      0.8.0
+// @version      0.8.1
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -338,12 +338,22 @@
   }
 
   @media (min-width: 1121px) {
-    body.ld-list-align-left.navigation-topics #main-outlet-wrapper {
+    body.ld-list-align-left.navigation-topics #main-outlet-wrapper,
+    body.ld-list-align-left.search-page #main-outlet-wrapper {
       max-width: none;
       margin-inline: 0;
       padding-inline: 12px;
     }
 
+    body.ld-list-align-left.search-page .search-container > .search-header,
+    body.ld-list-align-left.search-page .search-advanced > .search-results {
+      padding-inline: 0;
+    }
+
+    body.ld-list-align-left.search-page .search-advanced > .search-info,
+    body.ld-list-align-left.search-page .search-advanced > .result-count {
+      margin-inline: 0;
+    }
   }
 
   body.ld-drawer-page-open.ld-drawer-mode-overlay::after {
@@ -2782,7 +2792,7 @@
                     <option value="off">保持原站布局</option>
                     <option value="on">开启</option>
                   </select>
-                  <span class="ld-setting-hint">宽屏列表容器靠左；原站边栏正常展开收起，独立于抽屉开关和悬浮或挤压模式</span>
+                  <span class="ld-setting-hint">宽屏帖子列表和搜索页靠左；原站边栏正常展开收起，独立于抽屉开关和悬浮或挤压模式</span>
                 </label>
                 <label class="ld-setting-field">
                   <span class="ld-setting-label">抽屉宽度</span>
@@ -2990,6 +3000,10 @@
         if (link.closest(".user-menu.menu-panel")) {
           document.querySelector(".d-header .current-user button")?.click();
         }
+        // 交由原站收起搜索下拉框，保留搜索词及再次展开能力。
+        link.closest(".search-menu")?.querySelector(".search-term__input")?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true, cancelable: true })
+        );
         openDrawer(topicUrl, link.textContent.trim(), link);
         return;
       }
@@ -3091,8 +3105,9 @@
         return null;
       }
 
-      // 头像菜单中的通知链接不在主内容区，也不使用列表标题样式。
-      if (!link.closest(".user-menu.menu-panel") && (
+      // 通知菜单和原站搜索结果可能位于主内容区之外；搜索菜单还带有 menu-panel。
+      const isSearchResult = link.matches("a.search-link") && link.closest(".search-menu, .search-results");
+      if (!link.closest(".user-menu.menu-panel") && !isSearchResult && (
         !link.closest(MAIN_CONTENT_SELECTOR) ||
         link.closest(EXCLUDED_LINK_CONTEXT_SELECTOR) ||
         !isPrimaryTopicLink(link)

@@ -158,6 +158,26 @@ try {
     document.body.classList.remove('ld-list-align-left');
     if (getComputedStyle(document.querySelector('.sidebar-wrapper')).display === 'none') throw Error('关闭靠左设置未恢复原站导航');
     document.body.classList.add('ld-list-align-left');
+    document.body.classList.replace('navigation-topics', 'search-page');
+    const search = list.getBoundingClientRect();
+    if (Math.abs(search.left - reopened.left) > 1 || Math.abs(search.width - reopened.width) > 1) throw Error('独立搜索页未复用靠左布局');
+    const searchContent = document.createElement('section'); searchContent.className = 'search-container';
+    searchContent.innerHTML = '<div class="search-header"><input></div><div class="search-advanced"><div class="search-info">筛选</div><div class="result-count">结果数</div><div class="search-results"><div class="fps-result">帖子</div></div></div>';
+    list.append(searchContent);
+    const searchStyle = document.createElement('style');
+    searchStyle.textContent = '.search-header, .search-advanced > .search-results {padding-inline:10%} .search-info, .result-count {margin-inline:10%}';
+    document.head.append(searchStyle);
+    const contentEdges = () => [...searchContent.querySelectorAll('input, .search-info, .result-count, .fps-result')].map(e => e.getBoundingClientRect().left);
+    if (contentEdges().some(left => Math.abs(left - search.left) > 1)) throw Error('搜索内容内层仍有额外缩进');
+    document.body.classList.remove('ld-drawer-page-open');
+    if (Math.abs(list.getBoundingClientRect().left - search.left) > 1 || Math.abs(list.getBoundingClientRect().width - search.width) > 1) throw Error('搜索页随抽屉收放改变布局');
+    document.body.classList.add('ld-drawer-page-open');
+    document.body.classList.remove('ld-list-align-left');
+    if (wrapper.getBoundingClientRect().left <= 30) throw Error('关闭设置后搜索页未恢复居中');
+    if (contentEdges().some(left => left <= list.getBoundingClientRect().left + 20)) throw Error('关闭设置未恢复搜索内层间距');
+    searchContent.remove(); searchStyle.remove();
+    document.body.classList.add('ld-list-align-left');
+    document.body.classList.replace('search-page', 'navigation-topics');
     return '原站边栏展开收起、宽屏持续靠左、悬浮开关不改变列表尺寸：通过';
   })()`));
   run(['set', 'viewport', '390', '640']);
@@ -468,6 +488,47 @@ try {
     }
     menu.hidden = true;
     return '头像菜单通知/回复/点赞预览、楼层路径、自动收起与非帖子链接放行：通过';
+  })()`).trim());
+  console.log(evaluate(`(() => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    for (const className of ['search-menu welcome-banner__search-menu', 'search-menu', 'search-results']) {
+      container.className = className;
+      container.innerHTML = '<div class="' + (className === 'search-results' ? 'fps-result' : 'menu-panel search-menu-panel') + '"><a class="search-link" href="/t/test/2/3"><span>搜索帖子</span></a></div>';
+      const link = container.querySelector('a');
+      const panel = container.firstChild;
+      const input = document.createElement('input'); input.className = 'search-term__input'; input.value = '搜索词';
+      if (className !== 'search-results') {
+        container.append(input);
+        input.onkeydown = event => { if (event.key === 'Escape') { panel.hidden = true; event.preventDefault(); } };
+        input.onfocus = () => { panel.hidden = false; };
+      }
+      const event = new MouseEvent('click', {bubbles:true, cancelable:true, button:0});
+      link.firstChild.dispatchEvent(event);
+      if (!event.defaultPrevented || window.previewTest.state.currentUrl !== link.href || !document.body.classList.contains('ld-drawer-page-open')) throw Error(className + '搜索结果未进入抽屉');
+      if (className !== 'search-results') {
+        if (!panel.hidden || input.value !== '搜索词') throw Error('搜索下拉框未收起或搜索词丢失');
+        input.focus();
+        if (panel.hidden) throw Error('搜索下拉框无法重新展开');
+      } else if (panel.hidden) throw Error('独立搜索页列表不应收起');
+      // 完整搜索页仍遵循悬浮遮罩的点击关闭行为；收起后检查原生链接放行。
+      document.querySelector('.ld-drawer-close').click();
+      for (const [href, attrs, options] of [
+        ['/u/test', {}, {}], ['/tag/test', {}, {}], ['/search?q=test', {}, {}], ['https://example.com/t/2', {}, {}],
+        ['/t/test/2', {target:'_blank'}, {}], ['/t/test/2', {download:''}, {}],
+        ['/t/test/2', {}, {ctrlKey:true}], ['/t/test/2', {}, {metaKey:true}], ['/t/test/2', {}, {button:1}]
+      ]) {
+        const other = document.createElement('a'); other.className = 'search-link'; other.href = href;
+        for (const [key, value] of Object.entries(attrs)) other.setAttribute(key, value);
+        container.firstChild.replaceChildren(other);
+        let reached = false;
+        other.addEventListener('click', event => { reached = !event.defaultPrevented; event.preventDefault(); });
+        other.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, button:0, ...options}));
+        if (!reached) throw Error(className + '非帖子或新标签操作被接管');
+      }
+    }
+    container.remove();
+    return '首页/顶栏搜索下拉框、完整搜索页的帖子预览及非帖子操作放行：通过';
   })()`).trim());
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);

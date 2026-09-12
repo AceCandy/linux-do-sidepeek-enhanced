@@ -165,12 +165,22 @@ body.ld-drawer-page-open.ld-drawer-mode-overlay {
 }
 
 @media (min-width: 1121px) {
-  body.ld-list-align-left.navigation-topics #main-outlet-wrapper {
+  body.ld-list-align-left.navigation-topics #main-outlet-wrapper,
+  body.ld-list-align-left.search-page #main-outlet-wrapper {
     max-width: none;
     margin-inline: 0;
     padding-inline: 12px;
   }
 
+  body.ld-list-align-left.search-page .search-container > .search-header,
+  body.ld-list-align-left.search-page .search-advanced > .search-results {
+    padding-inline: 0;
+  }
+
+  body.ld-list-align-left.search-page .search-advanced > .search-info,
+  body.ld-list-align-left.search-page .search-advanced > .result-count {
+    margin-inline: 0;
+  }
 }
 
 body.ld-drawer-page-open.ld-drawer-mode-overlay::after {

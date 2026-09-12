@@ -472,6 +472,16 @@ bash scripts/agent-smoke.sh --cdp-port 9222 --cases AGENT-CHROME-001,AGENT-CHROM
 3. 只对 `.user-menu.menu-panel` 内帖子链接例外放行，不移除其他菜单、正文和编辑器的排除规则。
 4. `node scripts/check-preview-browser.cjs` 覆盖上述点击路径；本功能不另行调用通知清除接口，通知红点是否清除不属于本用例的保证。
 
+### AGENT-CHROME-029：搜索结果帖子预览
+
+1. 首页搜索框、右上角搜索下拉框及完整搜索页，普通左键点击帖子标题（含内部高亮文字）打开或切换抽屉，保留楼层路径，原页面不跳转。
+2. 搜索结果即使不在 `#main-outlet` 内，或位于 `.menu-panel` 内，也应生效；仅对 `.search-menu`、`.search-results` 内的 `a.search-link` 例外放行。
+3. 用户、标签、分类、查看全部结果、外站链接及 Ctrl/Command/中键、新标签和下载操作保持原样。
+4. 固定页面回归：`node scripts/check-preview-browser.cjs`；真实站点需分别检查两个搜索入口及完整搜索页。
+5. 首页及顶栏搜索下拉框点击帖子后通过原站 Escape 处理收起，搜索词保留，再次搜索仍能展开；独立搜索页的结果列表不隐藏。
+6. 开启“宽屏帖子列表靠左”后，独立搜索页也靠左，保留原站导航栏；悬浮抽屉收放不改变搜索列表的位置和宽度，关闭设置或窄屏恢复原站布局。
+7. 靠左验证必须测量搜索框、结果数量及首条结果的实际左边界，不能只检查 `#main-outlet-wrapper`；消除搜索页内层百分比 padding/margin，仍为展开的导航栏保留空间。
+
 ## 3. 记录格式
 
 执行完用例后，建议按下面格式留证据：
