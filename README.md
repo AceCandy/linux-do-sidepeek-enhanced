@@ -176,6 +176,20 @@
 - Firefox 附件是未签名包，适合临时加载或后续签名；它不等同于可直接长期安装的正式发行包
 - 建议发版时把 `CHANGELOG.md` 对应条目同步到 GitHub Release Notes，方便直接查看更新记录与致谢
 
+### Greasy Fork 自动更新
+
+[Greasy Fork 脚本 595341](https://greasyfork.org/zh-CN/scripts/595341) 已启用自动源代码同步，来源是 GitHub 最新正式 Release 的油猴附件：
+
+```text
+https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/latest/download/linuxdo-sidepeek.user.js
+```
+
+- 发版前更新 `manifest.json` 版本号，运行 `node scripts/build-userscript.cjs` 并提交生成文件；Release 必须包含同名 `linuxdo-sidepeek.user.js` 附件。
+- 发布新的正式 Release 并设为 Latest 后，Greasy Fork 定期拉取该附件，按脚本中的 `@version` 更新；不是即时推送，检查可能有延迟。
+- 普通 `main` 提交、尚未生成正式 Release 的标签、草稿和预发布不会直接更新 Greasy Fork；只有最新正式 Release 的附件变化才成为同步源。
+- 不需要保存 Greasy Fork 密码、登录 Cookie 或 Webhook 密钥，也没有额外的发布分支。
+- 此配置同步脚本代码与版本，Greasy Fork 简介和更新日志仍单独维护。可在脚本“管理 → 源代码同步”中检查状态或手动触发同步。
+
 ## 致谢
 
 - 感谢 linux.do 群友 `zhoudashuai`：
