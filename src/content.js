@@ -110,6 +110,7 @@
     replyToggleButton: null,
     replyFabButton: null,
     topFabButton: null,
+    bottomFabButton: null,
     replyPanel: null,
     replyPanelHead: null,
     replyPanelTitle: null,
@@ -562,6 +563,9 @@
           <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-back-top" type="button" aria-label="回到顶部" title="回到顶部">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h14M12 20V8m-6 6 6-6 6 6"/></svg>
           </button>
+          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-go-bottom" type="button" aria-label="跳到最新回复" title="跳到最新回复">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 20h14M12 4v12m-6-6 6 6 6-6"/></svg>
+          </button>
           <button class="ld-drawer-reply-fab ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" title="回复当前主题">
             <span class="ld-drawer-reply-fab-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -611,6 +615,7 @@
     state.replyToggleButton = root.querySelector(".ld-drawer-reply-toggle");
     state.replyFabButton = root.querySelector(".ld-drawer-reply-fab.ld-drawer-reply-trigger");
     state.topFabButton = root.querySelector(".ld-drawer-back-top");
+    state.bottomFabButton = root.querySelector(".ld-drawer-go-bottom");
     state.replyPanel = root.querySelector(".ld-drawer-reply-panel");
     state.replyPanelHead = root.querySelector(".ld-reply-panel-head");
     state.replyPanelTitle = root.querySelector(".ld-reply-panel-title");
@@ -648,6 +653,7 @@
     state.topFabButton.addEventListener("click", () => {
       state.drawerBody.scrollTo({ top: 0, behavior: "instant" });
     });
+    state.bottomFabButton.addEventListener("click", handleJumpToLatestPost);
     state.settingsToggle.addEventListener("click", toggleSettingsPanel);
     state.latestRepliesRefreshButton.addEventListener("click", handleLatestRepliesRefresh);
     state.replyToggleButton.addEventListener("click", toggleReplyPanel);
@@ -1897,6 +1903,15 @@
       }, topic);
     }
 
+    if (targetSpec?.targetToken === "last") {
+      return applyAuthorFilterToViewModel({
+        posts,
+        mode: "targeted",
+        canAutoLoadMore: false,
+        hasHiddenPosts: moreAvailable
+      }, topic);
+    }
+
     if (state.settings.replyOrder !== "latestFirst" || posts.length <= 1) {
       return applyAuthorFilterToViewModel({
         posts,
@@ -2011,6 +2026,16 @@
     avatar.loading = "lazy";
     avatar.src = avatarUrl(post.avatar_template);
 
+    let avatarElement = avatar;
+    if (post.username) {
+      const avatarLink = document.createElement("a");
+      avatarLink.className = "ld-post-avatar-link";
+      avatarLink.href = `${location.origin}/u/${encodeURIComponent(post.username)}`;
+      avatarLink.dataset.userCard = post.username;
+      avatarLink.appendChild(avatar);
+      avatarElement = avatarLink;
+    }
+
     const authorBlock = document.createElement("div");
     authorBlock.className = "ld-post-author";
 
@@ -2036,7 +2061,7 @@
     meta.textContent = buildPostMeta(post);
 
     authorBlock.append(authorRow, meta);
-    header.append(avatar, authorBlock);
+    header.append(avatarElement, authorBlock);
 
     const replyToTab = buildReplyToTab(post);
 
@@ -2951,7 +2976,6 @@
 
     const controller = new AbortController();
     const currentUrl = state.currentUrl;
-    const previousScrollTop = state.drawerBody?.scrollTop || 0;
     state.loadMoreAbortController = controller;
 
     try {
@@ -2972,6 +2996,7 @@
 
       state.isLoadingMorePosts = false;
       state.loadMoreError = "";
+      const previousScrollTop = state.drawerBody?.scrollTop || 0;
       if (!appendLoadedPostsIncrementally(nextTopic, posts, previousScrollTop)) {
         renderTopic(nextTopic, currentUrl, state.currentFallbackTitle, state.currentResolvedTargetPostNumber, {
           targetSpec: state.currentTargetSpec,
@@ -3415,6 +3440,37 @@
       state.isRefreshingLatestReplies = false;
       syncLatestRepliesRefreshUI();
     }
+  }
+
+  function handleJumpToLatestPost() {
+    if (!state.currentTopic || state.settings.postMode === "first") {
+      return;
+    }
+
+    const latestPosts = state.currentLatestRepliesTopic?.post_stream?.posts || [];
+    const loadedPosts = state.currentTopic.post_stream?.posts || [];
+    const knownLatestPost = state.currentTargetSpec?.targetToken === "last"
+      ? state.currentResolvedTargetPostNumber
+      : (latestPosts.length || topicHasCompletePostStream(state.currentTopic)
+        ? [...latestPosts, ...loadedPosts].reduce((latest, post) => Math.max(latest, Number(post?.post_number) || 0), 0)
+        : null);
+    const target = knownLatestPost
+      ? state.content?.querySelector(`.ld-post-card[data-post-number="${knownLatestPost}"]`)
+      : null;
+    if (target) {
+      target.scrollIntoView({ block: "start", behavior: "instant" });
+      return;
+    }
+
+    const topicId = Number(state.currentTopic.id || state.currentTopicIdHint);
+    if (!Number.isFinite(topicId)) {
+      return;
+    }
+
+    const slug = typeof state.currentTopic.slug === "string" && state.currentTopic.slug.trim()
+      ? state.currentTopic.slug.trim()
+      : "topic";
+    openDrawer(`${location.origin}/t/${slug}/${topicId}/last`, state.currentFallbackTitle, state.activeLink);
   }
 
   function shouldRefreshCurrentTopicOnRepeatOpen() {
@@ -5365,6 +5421,11 @@
 
     if (state.topFabButton) {
       state.topFabButton.hidden = !hasCurrentUrl || isSettingsOpen
+        || state.root.classList.contains(IFRAME_MODE_CLASS) || !state.replyPanel?.hidden;
+    }
+
+    if (state.bottomFabButton) {
+      state.bottomFabButton.hidden = !hasTopic || state.settings.postMode === "first" || isSettingsOpen
         || state.root.classList.contains(IFRAME_MODE_CLASS) || !state.replyPanel?.hidden;
     }
 

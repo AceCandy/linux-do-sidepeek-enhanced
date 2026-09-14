@@ -5,6 +5,20 @@
   const mounted = new Map();
   let observer = null;
 
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element
+      ? event.target.closest("#ld-drawer-root a[data-user-card]")
+      : null;
+    const username = target?.dataset.userCard?.trim();
+    if (!username || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    try {
+      const owner = pageWindow.require("discourse/lib/get-owner").getOwnerWithFallback();
+      owner.lookup("service:app-events").trigger("topic-header:trigger-user-card", username, target, event);
+      event.preventDefault();
+      event.stopPropagation();
+    } catch {}
+  });
+
   document.addEventListener("ld-get-reactions", (event) => {
     const button = event.target;
     if (!(button instanceof HTMLElement) || !button.matches("#ld-drawer-root .ld-post-react-btn")) return;

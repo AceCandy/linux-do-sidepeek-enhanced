@@ -25,19 +25,25 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v0.8.2
+## 下载与安装 · v0.8.3
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.2/linux-do-sidepeek-0.8.2-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.2/linux-do-sidepeek-0.8.2-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.2/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.3/linux-do-sidepeek-0.8.3-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.3/linux-do-sidepeek-0.8.3-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.3/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.8.2) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.8.3) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 0.8.3 版本更新摘要
+
+- 修复超长帖分页完成后回跳，新增右下角“跳到最新回复”按钮，可直接定位末楼。
+- 智能预览头像支持打开 linux.do 原生用户卡片，资料页链接和修饰键点击保持可用。
+- 补充长帖滚动、末楼定位与头像用户卡片回归；扩展和油猴脚本同步更新。
 
 ## 0.8.2 版本更新摘要
 

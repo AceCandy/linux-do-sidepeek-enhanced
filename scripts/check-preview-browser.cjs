@@ -71,15 +71,15 @@ try {
     run(['set','viewport',String(width),'800']);
     console.log(evaluate(`(() => {
       const s = window.previewTest.state;
-      const reply = s.replyFabButton.getBoundingClientRect(), top = s.topFabButton.getBoundingClientRect(), root = s.root.getBoundingClientRect();
+      const reply = s.replyFabButton.getBoundingClientRect(), top = s.topFabButton.getBoundingClientRect(), bottom = s.bottomFabButton.getBoundingClientRect(), root = s.root.getBoundingClientRect();
       const refresh = s.latestRepliesRefreshButton.getBoundingClientRect();
       if (reply.width === 0 || top.width === 0 || root.bottom - reply.bottom < 27 || root.bottom - reply.bottom > 32 || top.bottom > reply.top || root.right - reply.right < 25 || root.right - reply.right > 28) throw Error('悬浮按钮未向左上移动');
-      if (refresh.width === 0 || refresh.right >= top.left || refresh.top !== top.top) throw Error('刷新未排列在回顶左侧');
+      if (bottom.width === 0 || refresh.width === 0 || refresh.right >= top.left || top.right >= bottom.left || refresh.top !== top.top || top.top !== bottom.top) throw Error('刷新、回顶和最新回复按钮未依次排列');
       if (s.header.querySelector('.ld-drawer-refresh, .ld-drawer-back-top')) throw Error('顶部仍有重复按钮');
       s.drawerBody.scrollTop = 500; s.topFabButton.click();
       if (s.drawerBody.scrollTop !== 0) throw Error('悬浮回到顶部失效');
       s.replyFabButton.click();
-      if (s.replyPanel.hidden || !s.topFabButton.hidden || !s.latestRepliesRefreshButton.hidden) throw Error('回复面板与悬浮按钮冲突');
+      if (s.replyPanel.hidden || !s.topFabButton.hidden || !s.bottomFabButton.hidden || !s.latestRepliesRefreshButton.hidden) throw Error('回复面板与悬浮按钮冲突');
       s.replyCancelButton.click();
       if (s.topFabButton.hidden) throw Error('关闭回复后未恢复悬浮回顶');
       return '悬浮按钮位置、回顶及回复开关：通过（${width}px）';
@@ -229,6 +229,7 @@ try {
     if (state.drawerBody.scrollTop !== 0) throw Error('返回顶部没有滚动智能正文');
     state.root.classList.add('ld-drawer-iframe-mode');
     if (getComputedStyle(state.root.querySelector('.ld-drawer-back-top')).display !== 'none') throw Error('整页模式仍显示智能返回顶部');
+    if (getComputedStyle(state.root.querySelector('.ld-drawer-go-bottom')).display !== 'none') throw Error('整页模式仍显示最新回复按钮');
     state.root.classList.remove('ld-drawer-iframe-mode');
     return '智能返回顶部及整页模式隐藏：通过';
   })()`).trim());
@@ -350,12 +351,15 @@ try {
     let destroyedPosts = 0;
     let fail = false;
     let boostRecord;
+    let userCardTrigger = null;
+    const appEvents = { trigger: (...args) => { userCardTrigger = args; } };
+    const store = { createRecord: (kind, data) => {
+      const record = { ...data, destroy: () => destroyedPosts++ };
+      if (data.can_boost) boostRecord = record;
+      return record;
+    } };
     const modules = {
-      "discourse/lib/get-owner": { getOwnerWithFallback: () => ({ lookup: () => ({ createRecord: (kind, data) => {
-        const record = { ...data, destroy: () => destroyedPosts++ };
-        if (data.can_boost) boostRecord = record;
-        return record;
-      } }) }) },
+      "discourse/lib/get-owner": { getOwnerWithFallback: () => ({ lookup: name => name === "service:app-events" ? appEvents : store }) },
       "@ember/application": { getOwner: () => ({}), setOwner: () => {} },
       "@ember/component": { getComponentTemplate: () => ({}), default: { extend: () => ({ create: props => ({
         appendTo: () => {
@@ -382,6 +386,21 @@ try {
     const fallback = await create();
     if (fallback.classList.contains('ld-native-body') || !fallback.textContent.includes('回退正文')) throw Error('模块缺失没有回退');
     window.require = name => modules[name];
+    const userCard = buildPostCard({ id: 122, post_number: 1, username: 'test-user', cooked: '<p>用户卡片</p>' });
+    state.drawerBody.replaceChildren(userCard);
+    const avatarLink = userCard.querySelector('.ld-post-avatar-link');
+    if (avatarLink.dataset.userCard !== 'test-user' || !avatarLink.href.endsWith('/u/test-user')) throw Error('头像缺少原生用户卡片标记或资料链接');
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    if (avatarLink.dispatchEvent(click) || userCardTrigger?.[0] !== 'topic-header:trigger-user-card' || userCardTrigger?.[1] !== 'test-user' || userCardTrigger?.[2] !== avatarLink) throw Error('头像点击未交给原站用户卡片');
+    userCardTrigger = null;
+    avatarLink.addEventListener('click', event => event.preventDefault());
+    avatarLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    if (userCardTrigger) throw Error('修饰点击错误触发原站用户卡片');
+    const cardOverlay = document.createElement('div'); cardOverlay.className = 'fk-d-menu'; document.body.append(cardOverlay);
+    document.body.classList.add('ld-drawer-page-open');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    if (!document.body.classList.contains('ld-drawer-page-open')) throw Error('用户卡片显示时 Escape 错误关闭抽屉');
+    cardOverlay.remove();
     const body = await create();
     if (!body.classList.contains('ld-native-body') || body.textContent !== '原站正文' || body.hasAttribute('data-ld-native-post')) throw Error('原站正文挂载失败');
     await create();
@@ -415,7 +434,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 0));
     if (destroyed !== beforeClose + 2 || boostTarget.children.length || boostCard.querySelector('.ld-native-body')) throw Error('关闭未释放 Boost 和正文');
     delete window.require;
-    return '原站正文/Boost 桥：挂载、状态同步、模块缺失回退、切帖/关闭销毁和异常清理：通过';
+    return '原站用户卡片、正文/Boost 桥：触发、挂载、状态同步、回退和销毁：通过';
   })()`).trim());
   evaluate(`(() => {
     const wrap = document.createElement('div');
@@ -538,13 +557,19 @@ try {
     s.currentViewTracked = true;
     let total = 41;
     let emptyBatch = true;
+    let delayBatch = false;
+    let releaseBatch = null;
+    let batchRequests = 0;
     const post = n => ({id:10000+n, post_number:n, username:'test-user', created_at:'2026-01-01T00:00:00Z',
       cooked:'<p style="height:100px">刷新回归正文 ' + n + '</p>', actions_summary:[]});
     window.fetch = async (input, options = {}) => {
       const url = new URL(input, location.href);
       const batch = url.pathname.endsWith('/posts.json');
+      if (batch) batchRequests += 1;
       if (!batch && options.cache !== 'no-store') throw Error('刷新主题请求复用了 HTTP 缓存');
+      if (batch && delayBatch) await new Promise(resolve => { releaseBatch = resolve; });
       const numbers = batch ? (emptyBatch ? [] : url.searchParams.getAll('post_ids[]').map(id => Number(id)-10000))
+        : url.pathname.endsWith('/last.json') ? Array.from({length:20}, (_,i) => total-19+i)
         : url.pathname.endsWith('/25.json') ? Array.from({length:20}, (_,i) => i+16)
         : Array.from({length:20}, (_,i) => i+1);
       return new Response(JSON.stringify({id:100, title:'刷新回归', posts_count:total,
@@ -570,7 +595,26 @@ try {
     const numbers = Array.from(s.content.querySelectorAll('.ld-post-card'), node => Number(node.dataset.postNumber));
     if (numbers.length !== 43 || numbers.some((n,i) => n !== i+1)) throw Error('定位后分页未补齐新增回复或出现重复乱序');
     if (location.pathname !== '/latest' || s.currentUrl !== 'https://linux.do/t/test/100/25') throw Error('刷新分页改变页面或定位链接');
-    return '定位窗口刷新后新增回复可见、空分页重试、补齐且无重复乱序：通过';
+    total = 80;
+    s.currentUrl = 'https://linux.do/t/test/100';
+    await window.previewTest.loadTopic(s.currentUrl, '超长帖滚动回归', 100);
+    delayBatch = true;
+    s.drawerBody.scrollTop = s.drawerBody.scrollHeight - s.drawerBody.clientHeight - 100;
+    s.drawerBody.dispatchEvent(new Event('scroll'));
+    while (!releaseBatch) await new Promise(resolve => setTimeout(resolve, 10));
+    s.drawerBody.scrollTop += 80;
+    const continuedScrollTop = s.drawerBody.scrollTop;
+    delayBatch = false;
+    releaseBatch();
+    while (s.isLoadingMorePosts) await new Promise(resolve => setTimeout(resolve, 10));
+    if (s.drawerBody.scrollTop !== continuedScrollTop) throw Error('分页完成后回到了请求发出时的旧位置');
+    const batchRequestsBeforeJump = batchRequests;
+    s.bottomFabButton.click();
+    const latestDeadline = Date.now() + 5000;
+    while (s.currentResolvedTargetPostNumber !== 80 && Date.now() < latestDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+    if (!s.content.querySelector('.ld-post-card[data-post-number="80"]') || !s.currentUrl.endsWith('/100/last')) throw Error('向下按钮未定位到最新回复');
+    if (batchRequests !== batchRequestsBeforeJump || s.isLoadingMorePosts) throw Error('最新回复定位错误加载全部中间楼层');
+    return '定位刷新、空分页重试、超长帖滚动不回跳及最新回复定位：通过';
   })()`).trim());
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);
