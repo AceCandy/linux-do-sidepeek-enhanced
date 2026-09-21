@@ -385,7 +385,8 @@ body.ld-drawer-page-open #ld-drawer-root {
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  /* 外层不能参与楼层定位滚动，否则首帖会被吸顶标题遮住。 */
+  overflow: clip;
 }
 
 #ld-image-preview-root .ld-image-preview {

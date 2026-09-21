@@ -503,6 +503,13 @@ bash scripts/agent-smoke.sh --cdp-port 9222 --cases AGENT-CHROME-001,AGENT-CHROM
 3. Ctrl/Command、Shift、Alt 修饰点击保持浏览器原生链接行为；原站桥不可用时仍可通过链接进入用户资料页。
 4. 用户卡片显示时按 Esc 只关闭原站卡片，不关闭抽屉。固定页面回归：`node scripts/check-preview-browser.cjs`；真实用户资料内容及 linux.do 插件按钮需在线验证。
 
+### AGENT-CHROME-032：正文溢出时切帖与回顶
+
+1. 在正文中加入超出视口、包含块为 `.ld-drawer-main` 的绝对定位内容，交替打开带 `/1` 楼层路径的长短主题，并用 Alt/Option + 上下键连续切换。
+2. 楼层定位、末楼跳转和切帖后，`.ld-drawer-main.scrollTop` 始终为 0；长帖的 `.ld-drawer-body` 仍能滚动并定位末楼。
+3. 点击回到顶部，正文滚动位置为 0，首帖顶部不得位于标题栏底部之上，作者区域完整可见。
+4. 固定页面回归：`node scripts/check-preview-browser.cjs`，覆盖 1280px 和 390px。真实站点的具体溢出元素、Firefox 和油猴管理器实装需另行验证。
+
 ## 3. 记录格式
 
 执行完用例后，建议按下面格式留证据：

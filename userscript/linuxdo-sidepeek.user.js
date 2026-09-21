@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      0.8.3
+// @version      0.8.4
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -572,7 +572,8 @@
     display: flex;
     flex-direction: column;
     position: relative;
-    overflow: hidden;
+    /* 外层不能参与楼层定位滚动，否则首帖会被吸顶标题遮住。 */
+    overflow: clip;
   }
 
   #ld-image-preview-root .ld-image-preview {

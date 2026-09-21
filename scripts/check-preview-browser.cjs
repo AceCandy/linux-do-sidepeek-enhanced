@@ -616,6 +616,54 @@ try {
     if (batchRequests !== batchRequestsBeforeJump || s.isLoadingMorePosts) throw Error('最新回复定位错误加载全部中间楼层');
     return '定位刷新、空分页重试、超长帖滚动不回跳及最新回复定位：通过';
   })()`).trim());
+  for (const width of [1280, 390]) {
+    run(['set', 'viewport', String(width), '800']);
+    console.log(evaluate(`(async () => {
+      const s = window.previewTest.state;
+      const previousFetch = window.fetch;
+      const list = document.createElement('div');
+      list.innerHTML = [201, 202].map(id => '<div class="topic-list-item"><a class="title" href="/t/overflow/' + id + '/1">溢出回归 ' + id + '</a></div>').join('');
+      document.querySelector('#main-outlet').append(list);
+      const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.fetch = async input => {
+        const id = Number.parseInt(new URL(input, location.href).pathname.split('/')[3], 10);
+        const posts = [1, 2].map(n => ({id:id * 100 + n, post_number:n, username:'test-user',
+          cooked:'<p style="height:' + (id === 201 ? 80 : 1400) + 'px">高低正文</p>' +
+            '<span style="position:absolute;top:6000px;height:100px;width:10px">定位内容</span>', actions_summary:[]}));
+        return new Response(JSON.stringify({id, title:'溢出回归 ' + id, posts_count:2,
+          post_stream:{posts, stream:posts.map(post => post.id)}}), {headers:{'content-type':'application/json'}});
+      };
+      try {
+        s.settings.trackPreviewVisit = 'off';
+        s.drawerBody.replaceChildren(s.content);
+        s.topicCache.clear();
+        list.querySelector('a').click();
+        for (let i = 0; i < 12; i++) {
+          await frame();
+          const expectedId = i % 2 ? 202 : 201;
+          if (s.currentTopic?.id !== expectedId) throw Error('Alt 切帖未到达预期主题');
+          if (s.replyPanelMain.scrollTop !== 0) throw Error('楼层定位滚动了正文外层');
+          if (expectedId === 202) {
+            s.bottomFabButton.click();
+            if (s.drawerBody.scrollTop <= 0) throw Error('禁止外层滚动后正文无法定位末楼');
+          }
+          s.topFabButton.click();
+          const first = s.content.querySelector('.ld-post-card');
+          if (s.drawerBody.scrollTop !== 0 || s.replyPanelMain.scrollTop !== 0 ||
+              first.getBoundingClientRect().top < s.header.getBoundingClientRect().bottom - 1) {
+            throw Error('回顶后首帖仍被标题栏裁切');
+          }
+          if (i < 11) document.dispatchEvent(new KeyboardEvent('keydown', {
+            key:i % 2 ? 'ArrowUp' : 'ArrowDown', altKey:true, bubbles:true, cancelable:true
+          }));
+        }
+      } finally {
+        window.fetch = previousFetch;
+        list.remove();
+      }
+      return '正文定位元素溢出、长短帖 Alt 连续切换、末楼定位和回顶：通过（${width}px）';
+    })()`).trim());
+  }
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);
 } finally {
