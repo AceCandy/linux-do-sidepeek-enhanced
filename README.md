@@ -25,19 +25,25 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v0.8.4
+## 下载与安装 · v0.8.5
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.4/linux-do-sidepeek-0.8.4-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.4/linux-do-sidepeek-0.8.4-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.4/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.5/linux-do-sidepeek-0.8.5-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.5/linux-do-sidepeek-0.8.5-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.5/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.8.4) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.8.5) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 0.8.5 版本更新摘要
+
+- 右下角第一排改为“刷新 + 帖内搜索”，第二排为“回到顶部 + 跳到最新回复”，下方保留回复。
+- 新增当前整帖搜索与结果分页；已显示楼层在抽屉内定位，未显示楼层在新标签打开。
+- 搜索支持 Esc 关闭、失败提示及切帖取消旧请求，扩展与油猴脚本同步更新。
 
 ## 0.8.4 版本更新摘要
 
@@ -83,7 +89,7 @@
 
 - 智能预览优先复用原站正文组件与样式（不使用 iframe），支持原站轮播等正文装饰；正文组件不可用时回退现有智能渲染。接入依赖 Discourse 内部模块，网站升级可能触发回退。原站图片放大沿用站点交互。
 - 楼层统计与操作合为一排，以 `|` 分隔，不再显示楼层阅读量。表情汇总可点击选择、切换或取消反应。
-- 回复、刷新当前帖子和智能回顶入口悬浮于右下角，刷新在回顶左侧，顶部不再重复显示；Boost 使用紧凑尺寸。主题标签并入标题信息区。便捷阅读说明每次页面加载仅浮现一次，8 秒后消失，也可点 × 关闭，不占用正文空间。
+- 右下角第一排为刷新与帖内搜索，第二排为回顶与跳到最新回复，下方保留回复入口；帖内搜索覆盖当前整帖并支持分页。顶部不再重复显示刷新和回顶；Boost 使用紧凑尺寸。主题标签并入标题信息区。便捷阅读说明每次页面加载仅浮现一次，8 秒后消失，也可点 × 关闭，不占用正文空间。
 - 支持原站 Boost 气泡及火箭输入入口，是否可用由原站权限决定；依赖原站组件，模块不可用时不显示 Boost。长代码在正文内横向滚动，不撑宽楼层。
 - 可见主题标题异步预取：当前前台页面每秒最多启动 2 个请求，预取并发最多 2 个；整页模式及后台页面暂停。点击复用正在进行的请求或已缓存数据，预取不发送浏览跟踪与阅读上报。
 - 当前主题缓存统一为最多 100 个主题，获取后 10 分钟过期，按最近使用淘汰；同一主题不同楼层共享正文、分别保留阅读位置。缓存仅存于当前页面内存，刷新清空。

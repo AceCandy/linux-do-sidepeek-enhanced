@@ -72,16 +72,21 @@ try {
     console.log(evaluate(`(() => {
       const s = window.previewTest.state;
       const reply = s.replyFabButton.getBoundingClientRect(), top = s.topFabButton.getBoundingClientRect(), bottom = s.bottomFabButton.getBoundingClientRect(), root = s.root.getBoundingClientRect();
-      const refresh = s.latestRepliesRefreshButton.getBoundingClientRect();
+      const refresh = s.latestRepliesRefreshButton.getBoundingClientRect(), search = s.topicSearchButton.getBoundingClientRect();
       if (reply.width === 0 || top.width === 0 || root.bottom - reply.bottom < 27 || root.bottom - reply.bottom > 32 || top.bottom > reply.top || root.right - reply.right < 25 || root.right - reply.right > 28) throw Error('悬浮按钮未向左上移动');
-      if (bottom.width === 0 || refresh.width === 0 || refresh.right >= top.left || top.right >= bottom.left || refresh.top !== top.top || top.top !== bottom.top) throw Error('刷新、回顶和最新回复按钮未依次排列');
+      if (bottom.width === 0 || refresh.width === 0 || search.width === 0 || refresh.right >= search.left || refresh.top !== search.top || refresh.bottom >= top.top || top.right >= bottom.left || top.top !== bottom.top) throw Error('刷新与搜索未在第一排、回顶与最新回复未在第二排');
       if (s.header.querySelector('.ld-drawer-refresh, .ld-drawer-back-top')) throw Error('顶部仍有重复按钮');
       s.drawerBody.scrollTop = 500; s.topFabButton.click();
       if (s.drawerBody.scrollTop !== 0) throw Error('悬浮回到顶部失效');
       s.replyFabButton.click();
-      if (s.replyPanel.hidden || !s.topFabButton.hidden || !s.bottomFabButton.hidden || !s.latestRepliesRefreshButton.hidden) throw Error('回复面板与悬浮按钮冲突');
+      if (s.replyPanel.hidden || !s.topFabButton.hidden || !s.bottomFabButton.hidden || !s.latestRepliesRefreshButton.hidden || !s.topicSearchButton.hidden) throw Error('回复面板与悬浮按钮冲突');
       s.replyCancelButton.click();
       if (s.topFabButton.hidden) throw Error('关闭回复后未恢复悬浮回顶');
+      s.topicSearchButton.click();
+      const panel = s.topicSearchPanel.getBoundingClientRect();
+      if (s.topicSearchPanel.hidden || document.activeElement !== s.topicSearchInput || panel.left < root.left || panel.right > root.right || s.topicSearchPanel.scrollWidth > panel.width) throw Error('帖内搜索未聚焦或窄屏溢出');
+      document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
+      if (!s.topicSearchPanel.hidden || !document.body.classList.contains('ld-drawer-page-open') || document.activeElement !== s.topicSearchButton) throw Error('Esc 未关闭搜索并恢复焦点');
       return '悬浮按钮位置、回顶及回复开关：通过（${width}px）';
     })()`).trim());
   }
@@ -664,6 +669,100 @@ try {
       return '正文定位元素溢出、长短帖 Alt 连续切换、末楼定位和回顶：通过（${width}px）';
     })()`).trim());
   }
+  console.log(evaluate(`(async () => {
+    const s = window.previewTest.state;
+    const previousFetch = window.fetch, previousOpen = window.open;
+    const requests = [];
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+    const waitFor = async predicate => {
+      const deadline = Date.now() + 5000;
+      while (!predicate() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+      if (!predicate()) throw Error('帖内搜索检查等待超时');
+    };
+    let results = {posts:[
+      {topic_id:1, post_number:2, username:'用户', blurb:'<b>匹配</b><img src="x" onerror="window.searchUnsafe=true">'},
+      {topic_id:1, post_number:99, username:'用户', blurb:'尚未加载的回复'},
+      {topic_id:2, post_number:3, blurb:'其他主题'}, {topic_id:1, post_number:-1}
+    ], grouped_search_result:{more_full_page_results:true}};
+    let failure = false, delayed = false;
+    window.fetch = async (input, options = {}) => {
+      const url = new URL(input, location.href);
+      if (url.pathname !== '/search.json') {
+        const id = Number(url.pathname.match(/\\/test\\/(\\d+)/)?.[1]);
+        if (!id) return previousFetch(input, options);
+        const posts = [1, 2, 3].map(n => ({id:id * 100 + n, post_number:n, username:'test-user',
+          cooked:'<p style="height:700px">搜索定位正文</p>', actions_summary:[]}));
+        return new Response(JSON.stringify({id, title:'主题 ' + id, posts_count:3, post_stream:{posts, stream:posts.map(p => p.id)}}), {headers:{'content-type':'application/json'}});
+      }
+      const request = {url, options}; requests.push(request);
+      if (delayed) return new Promise(resolve => { request.resolve = resolve; });
+      return new Response(JSON.stringify(results), {status:failure ? 429 : 200});
+    };
+    const submit = async query => {
+      s.topicSearchInput.value = query;
+      s.topicSearchPanel.querySelector('form').requestSubmit();
+      if (!delayed) await waitFor(() => !s.topicSearchAbortController);
+    };
+    let opened;
+    window.open = (...args) => { opened = args; };
+    try {
+      s.settings.previewMode = 'smart'; s.settings.postMode = 'all'; s.settings.authorFilter = 'all';
+      document.querySelector('#main-outlet a[href="/t/test/1"]').click();
+      await window.previewTest.loadTopic(s.currentUrl, '搜索回归', 1);
+      await waitFor(() => s.currentTopic?.id === 1 && !s.abortController);
+      s.topicSearchButton.click();
+      await submit('匹配 & 测试');
+      const request = requests.at(-1);
+      if (request.url.searchParams.get('q') !== '匹配 & 测试 topic:1' || request.url.searchParams.get('search_context[type]') !== 'topic' || request.url.searchParams.get('search_context[id]') !== '1' || request.options.credentials !== 'include') throw Error('搜索关键词、主题范围或凭据错误');
+      if (s.topicSearchResults.children.length !== 2 || s.topicSearchResults.querySelector('b,img') || window.searchUnsafe) throw Error('搜索结果未限制主题/楼层或未安全输出：' + JSON.stringify({count:s.topicSearchResults.children.length, status:s.topicSearchStatus.textContent, unsafe:window.searchUnsafe}));
+      s.topicSearchInput.value = '尚未提交的词';
+      s.topicSearchPanel.querySelector('[data-search-page="next"]').click(); await waitFor(() => !s.topicSearchAbortController);
+      if (requests.at(-1).url.searchParams.get('page') !== '2' || requests.at(-1).url.searchParams.get('q') !== '匹配 & 测试 topic:1') throw Error('分页未保持已提交关键词');
+      s.topicSearchPanel.querySelector('[data-search-page="prev"]').click(); await waitFor(() => !s.topicSearchAbortController);
+      if (s.topicSearchPage !== 1) throw Error('搜索上一页失效');
+      s.topicSearchResults.lastChild.click();
+      if (!s.topicSearchPanel.hidden || !opened?.[0].endsWith('/1/99') || opened[2] !== 'noopener,noreferrer') throw Error('未加载楼层未安全打开');
+      s.topicSearchButton.click(); await submit('匹配');
+      let scrolled = false;
+      s.content.querySelector('[data-post-number="2"]').scrollIntoView = () => { scrolled = true; };
+      s.topicSearchResults.firstChild.click();
+      if (!scrolled || !s.topicSearchPanel.hidden) throw Error('已加载搜索结果未定位');
+      s.topicSearchButton.click();
+      results = {posts:Array.from({length:50}, (_,i) => ({topic_id:1, post_number:i+1, blurb:'较长的搜索结果摘要 '.repeat(30)})), grouped_search_result:{}};
+      await submit('大量结果');
+      const panel = s.topicSearchPanel.getBoundingClientRect(), main = s.replyPanelMain.getBoundingClientRect();
+      const rows = s.topicSearchResults, pages = s.topicSearchPanel.querySelector('.ld-topic-search-pages').getBoundingClientRect();
+      rows.scrollTop = rows.scrollHeight;
+      if (panel.height > main.height * 0.4 + 1 || rows.scrollTop === 0 || pages.bottom > panel.bottom || s.drawerBody.clientHeight < 100) throw Error('大量搜索结果未限制高度或不能内部滚动：' + JSON.stringify({panel:panel.height,main:main.height,scroll:rows.scrollTop,pagesBottom:pages.bottom,panelBottom:panel.bottom,body:s.drawerBody.clientHeight}));
+      results = {posts:[], grouped_search_result:{}}; await submit('空结果');
+      if (!s.topicSearchStatus.textContent.includes('没有匹配')) throw Error('无结果提示错误');
+      failure = true; await submit('请求失败');
+      if (!s.topicSearchStatus.textContent.includes('搜索失败')) throw Error('搜索异常无提示');
+      failure = false; delayed = true;
+      await submit('旧搜索'); const stale = requests.at(-1);
+      await submit('新搜索'); const latest = requests.at(-1);
+      if (!stale.options.signal.aborted) throw Error('新搜索未取消旧请求');
+      latest.resolve(new Response(JSON.stringify({posts:[], grouped_search_result:{}}))); await waitFor(() => !s.topicSearchAbortController);
+      stale.resolve(new Response(JSON.stringify({posts:[{topic_id:1,post_number:1,blurb:'过期结果'}]}))); await settle();
+      if (s.topicSearchResults.children.length || s.topicSearchQuery !== '新搜索') throw Error('旧响应覆盖新搜索');
+      await submit('切帖中'); const switching = requests.at(-1);
+      document.querySelector('#main-outlet a[href="/t/test/2"]').click(); await settle();
+      if (!switching.options.signal.aborted || !s.topicSearchPanel.hidden || s.topicSearchInput.value) throw Error('切帖未清理搜索');
+      switching.resolve(new Response(JSON.stringify(results))); await settle();
+      s.topicSearchButton.click(); s.settingsToggle.click();
+      if (!s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('设置与搜索面板冲突');
+      s.settingsCloseButton.click(); s.topicSearchButton.click(); s.replyFabButton.click();
+      if (!s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('回复与搜索面板冲突');
+      s.replyCancelButton.click();
+      s.topicSearchButton.click(); await submit('关闭中'); const closing = requests.at(-1);
+      document.querySelector('.ld-drawer-close').click();
+      if (!closing.options.signal.aborted || !s.topicSearchPanel.hidden) throw Error('关闭抽屉未取消搜索');
+      closing.resolve(new Response(JSON.stringify(results))); await settle();
+      return '帖内整帖搜索、分页、文本安全、楼层定位、空结果、失败及切帖/关闭竞态：通过';
+    } finally {
+      window.fetch = previousFetch; window.open = previousOpen;
+    }
+  })()`).trim());
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);
 } finally {

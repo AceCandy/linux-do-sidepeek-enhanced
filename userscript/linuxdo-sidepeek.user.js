@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      0.8.4
+// @version      0.8.5
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -1048,7 +1048,7 @@
   }
 
   #ld-drawer-root .ld-drawer-content {
-    padding: 10px 18px 124px;
+    padding: 10px 18px 172px;
   }
 
   #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-body {
@@ -1127,7 +1127,12 @@
   }
 
   #ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh {
-    right: 130px;
+    right: 78px;
+  }
+
+  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh,
+  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-search {
+    bottom: max(124px, env(safe-area-inset-bottom, 0px) + 116px);
   }
 
   #ld-drawer-root .ld-drawer-top-fab.ld-drawer-back-top {
@@ -1137,6 +1142,66 @@
   #ld-drawer-root .ld-drawer-top-fab svg {
     width: 18px;
     height: 18px;
+  }
+
+  #ld-drawer-root .ld-topic-search-panel {
+    display: flex;
+    box-sizing: border-box;
+    flex: 0 1 auto;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    max-height: 40%;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--primary-low, rgba(15, 23, 42, 0.12));
+    background: var(--secondary, #fff);
+  }
+
+  #ld-drawer-root .ld-topic-search-panel [hidden],
+  #ld-drawer-root .ld-topic-search-panel[hidden] {
+    display: none;
+  }
+
+  #ld-drawer-root .ld-topic-search-form,
+  #ld-drawer-root .ld-topic-search-pages {
+    display: flex;
+    gap: 8px;
+  }
+
+  #ld-drawer-root .ld-topic-search-input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--primary-low, #ddd);
+    border-radius: 8px;
+    padding: 6px 8px;
+    color: inherit;
+    background: var(--secondary, #fff);
+  }
+
+  #ld-drawer-root .ld-topic-search-status {
+    font-size: 12px;
+  }
+
+  #ld-drawer-root .ld-topic-search-results {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  #ld-drawer-root .ld-topic-search-result {
+    display: block;
+    width: 100%;
+    padding: 8px 0;
+    border: 0;
+    border-bottom: 1px solid var(--primary-low, #ddd);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  #ld-drawer-root .ld-topic-search-result:hover {
+    color: var(--tertiary, #3b82f6);
   }
 
   #ld-drawer-root .ld-drawer-reply-panel {
@@ -2413,6 +2478,14 @@
       settingsCloseButton: null,
       settingsToggle: null,
       latestRepliesRefreshButton: null,
+      topicSearchButton: null,
+      topicSearchPanel: null,
+      topicSearchInput: null,
+      topicSearchStatus: null,
+      topicSearchResults: null,
+      topicSearchAbortController: null,
+      topicSearchQuery: "",
+      topicSearchPage: 1,
       prevButton: null,
       nextButton: null,
       resizeHandle: null,
@@ -2834,11 +2907,27 @@
                 <button class="ld-settings-reset" type="button">恢复默认</button>
               </div>
             </div>
+            <section class="ld-topic-search-panel" id="ld-topic-search" aria-label="帖内搜索" hidden>
+              <form class="ld-topic-search-form" role="search" aria-label="搜索当前帖子">
+                <input class="ld-topic-search-input" type="search" aria-label="帖内搜索关键词" placeholder="搜索当前帖子全部楼层" required />
+                <button class="ld-reply-action" type="submit">搜索</button>
+                <button class="ld-reply-action ld-topic-search-close" type="button" aria-label="关闭帖内搜索">关闭</button>
+              </form>
+              <div class="ld-topic-search-status" role="status"></div>
+              <div class="ld-topic-search-results"></div>
+              <div class="ld-topic-search-pages">
+                <button class="ld-reply-action" type="button" data-search-page="prev" hidden>上一页</button>
+                <button class="ld-reply-action" type="button" data-search-page="next" hidden>下一页</button>
+              </div>
+            </section>
             <div class="ld-drawer-body">
               <div class="ld-drawer-content"></div>
             </div>
             <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-refresh" type="button" aria-label="刷新当前帖子" title="刷新当前帖子" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+            </button>
+            <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-search" type="button" aria-label="帖内搜索" title="帖内搜索" aria-expanded="false" aria-controls="ld-topic-search" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
             </button>
             <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-back-top" type="button" aria-label="回到顶部" title="回到顶部">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h14M12 20V8m-6 6 6-6 6 6"/></svg>
@@ -2917,6 +3006,11 @@
       state.settingsCloseButton = root.querySelector(".ld-settings-close");
       state.settingsToggle = root.querySelector(".ld-drawer-settings-toggle");
       state.latestRepliesRefreshButton = root.querySelector(".ld-drawer-refresh");
+      state.topicSearchButton = root.querySelector(".ld-drawer-search");
+      state.topicSearchPanel = root.querySelector(".ld-topic-search-panel");
+      state.topicSearchInput = root.querySelector(".ld-topic-search-input");
+      state.topicSearchStatus = root.querySelector(".ld-topic-search-status");
+      state.topicSearchResults = root.querySelector(".ld-topic-search-results");
       state.prevButton = root.querySelector('[data-nav="prev"]');
       state.nextButton = root.querySelector('[data-nav="next"]');
       state.resizeHandle = root.querySelector(".ld-drawer-resize-handle");
@@ -2936,6 +3030,17 @@
       state.bottomFabButton.addEventListener("click", handleJumpToLatestPost);
       state.settingsToggle.addEventListener("click", toggleSettingsPanel);
       state.latestRepliesRefreshButton.addEventListener("click", handleLatestRepliesRefresh);
+      state.topicSearchButton.addEventListener("click", () => setTopicSearchOpen(state.topicSearchPanel.hidden));
+      root.querySelector(".ld-topic-search-close").addEventListener("click", () => setTopicSearchOpen(false));
+      root.querySelector(".ld-topic-search-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        searchCurrentTopic(state.topicSearchInput.value.trim());
+      });
+      root.querySelectorAll("[data-search-page]").forEach((button) => {
+        button.addEventListener("click", () => searchCurrentTopic(
+          state.topicSearchQuery, state.topicSearchPage + (button.dataset.searchPage === "next" ? 1 : -1)
+        ));
+      });
       state.replyToggleButton.addEventListener("click", toggleReplyPanel);
       state.replyFabButton.addEventListener("click", toggleReplyPanel);
       state.replyCancelButton.addEventListener("click", () => setReplyPanelOpen(false));
@@ -3096,6 +3201,13 @@
         return;
       }
 
+      if (event.key === "Escape" && state.topicSearchPanel && !state.topicSearchPanel.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        setTopicSearchOpen(false);
+        return;
+      }
+
       if (isTypingTarget(event.target)) {
         return;
       }
@@ -3196,6 +3308,7 @@
       });
       window.addEventListener("pagehide", () => {
         state.previewPageHidden = true;
+        setTopicSearchOpen(false);
         stopReading();
         state.abortController?.abort();
         state.abortController = null;
@@ -3561,6 +3674,7 @@
         return;
       }
 
+      setTopicSearchOpen(false);
       stopReading();
       state.abortController?.abort();
       state.abortController = null;
@@ -3627,6 +3741,7 @@
     }
 
     function closeDrawer() {
+      setTopicSearchOpen(false);
       stopReading();
       cacheCurrentTopic();
 
@@ -4594,6 +4709,8 @@
       if (isOpen && !state.currentTopic) {
         return;
       }
+
+      if (isOpen) setTopicSearchOpen(false);
 
       if (!isOpen) {
         stopReplyPanelDrag();
@@ -5701,6 +5818,82 @@
       document.body.classList.toggle(PAGE_IFRAME_OPEN_CLASS, Boolean(state.currentUrl) && enabled);
     }
 
+    function setTopicSearchOpen(isOpen) {
+      if (!state.topicSearchPanel) return;
+      state.topicSearchPanel.hidden = !isOpen;
+      state.topicSearchButton.setAttribute("aria-expanded", String(isOpen));
+      if (isOpen) {
+        state.topicSearchInput.focus();
+        return;
+      }
+
+      state.topicSearchAbortController?.abort();
+      state.topicSearchAbortController = null;
+      if (state.topicSearchPanel.contains(document.activeElement)) state.topicSearchButton.focus();
+      state.topicSearchInput.value = "";
+      state.topicSearchStatus.textContent = "";
+      state.topicSearchResults.replaceChildren();
+      state.topicSearchPanel.querySelectorAll("[data-search-page]").forEach((button) => { button.hidden = true; });
+      state.topicSearchQuery = "";
+      state.topicSearchPage = 1;
+    }
+
+    async function searchCurrentTopic(query, page = 1) {
+      const topicId = getTopicIdFromUrl(state.currentUrl, state.currentTopicIdHint);
+      if (!query || !topicId || state.topicSearchPanel.hidden) return;
+      state.topicSearchAbortController?.abort();
+      const controller = new AbortController();
+      state.topicSearchAbortController = controller;
+      state.topicSearchStatus.textContent = "搜索中…";
+      state.topicSearchResults.replaceChildren();
+      const prev = state.topicSearchPanel.querySelector('[data-search-page="prev"]');
+      const next = state.topicSearchPanel.querySelector('[data-search-page="next"]');
+      prev.hidden = next.hidden = true;
+
+      try {
+        const url = new URL("/search.json", location.origin);
+        // 主题限定词也避免短关键词被整站搜索的最小长度校验拦截。
+        url.searchParams.set("q", `${query} topic:${topicId}`);
+        url.searchParams.set("search_context[type]", "topic");
+        url.searchParams.set("search_context[id]", String(topicId));
+        url.searchParams.set("page", String(page));
+        const response = await fetch(url.toString(), { credentials: "include", signal: controller.signal });
+        if (!response.ok) throw new Error("Search failed");
+        const data = await response.json();
+        if (controller.signal.aborted) return;
+        if (!data || data.errors || data.grouped_search_result?.error) throw new Error("Search failed");
+        const posts = (Array.isArray(data.posts) ? data.posts : []).filter((post) =>
+          Number(post?.topic_id) === topicId && Number.isSafeInteger(post?.post_number) && post.post_number > 0
+        );
+        for (const post of posts) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "ld-topic-search-result";
+          const snippet = new DOMParser().parseFromString(typeof post.blurb === "string" ? post.blurb : "", "text/html").body.textContent || "";
+          button.textContent = `#${post.post_number} · ${post.username || ""} · ${snippet}`;
+          button.title = "定位楼层（未显示的楼层将在新标签打开）";
+          button.addEventListener("click", () => {
+            setTopicSearchOpen(false);
+            navigateToPost(post.post_number);
+          });
+          state.topicSearchResults.append(button);
+        }
+        state.topicSearchQuery = query;
+        state.topicSearchPage = page;
+        const more = Boolean(data.grouped_search_result?.more_full_page_results || data.grouped_search_result?.more_posts);
+        state.topicSearchStatus.textContent = posts.length
+          ? `第 ${page} 页 · ${posts.length} 条结果${more && page >= 10 ? "；请缩小搜索范围查看更多" : ""}`
+          : "当前帖子没有匹配内容。";
+        prev.hidden = page <= 1;
+        next.hidden = !more || page >= 10;
+        state.topicSearchResults.scrollTop = 0;
+      } catch {
+        if (!controller.signal.aborted) state.topicSearchStatus.textContent = "搜索失败，请稍后重试，或调整关键词。";
+      } finally {
+        if (state.topicSearchAbortController === controller) state.topicSearchAbortController = null;
+      }
+    }
+
     async function handleLatestRepliesRefresh() {
       if (!state.currentUrl || state.isRefreshingLatestReplies || state.abortController) {
         return;
@@ -5835,6 +6028,7 @@
       }
 
       const shouldShow = Boolean(state.currentUrl) && state.settingsPanel?.hidden && state.replyPanel?.hidden;
+      if (state.topicSearchButton) state.topicSearchButton.hidden = !shouldShow;
       const isRefreshing = state.isRefreshingLatestReplies;
       state.latestRepliesRefreshButton.hidden = !shouldShow;
       state.latestRepliesRefreshButton.disabled = !shouldShow || isRefreshing || Boolean(state.abortController);
@@ -7799,6 +7993,7 @@
       }
 
       if (isOpen) {
+        setTopicSearchOpen(false);
         setReplyPanelOpen(false);
         syncSettingsUI();
         updateSettingsPopoverPosition();

@@ -861,7 +861,7 @@ body.ld-native-header-layout .d-header > .wrap {
 }
 
 #ld-drawer-root .ld-drawer-content {
-  padding: 10px 18px 124px;
+  padding: 10px 18px 172px;
 }
 
 #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-body {
@@ -940,7 +940,12 @@ body.ld-native-header-layout .d-header > .wrap {
 }
 
 #ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh {
-  right: 130px;
+  right: 78px;
+}
+
+#ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh,
+#ld-drawer-root .ld-drawer-top-fab.ld-drawer-search {
+  bottom: max(124px, env(safe-area-inset-bottom, 0px) + 116px);
 }
 
 #ld-drawer-root .ld-drawer-top-fab.ld-drawer-back-top {
@@ -950,6 +955,66 @@ body.ld-native-header-layout .d-header > .wrap {
 #ld-drawer-root .ld-drawer-top-fab svg {
   width: 18px;
   height: 18px;
+}
+
+#ld-drawer-root .ld-topic-search-panel {
+  display: flex;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  max-height: 40%;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--primary-low, rgba(15, 23, 42, 0.12));
+  background: var(--secondary, #fff);
+}
+
+#ld-drawer-root .ld-topic-search-panel [hidden],
+#ld-drawer-root .ld-topic-search-panel[hidden] {
+  display: none;
+}
+
+#ld-drawer-root .ld-topic-search-form,
+#ld-drawer-root .ld-topic-search-pages {
+  display: flex;
+  gap: 8px;
+}
+
+#ld-drawer-root .ld-topic-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--primary-low, #ddd);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: inherit;
+  background: var(--secondary, #fff);
+}
+
+#ld-drawer-root .ld-topic-search-status {
+  font-size: 12px;
+}
+
+#ld-drawer-root .ld-topic-search-results {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+#ld-drawer-root .ld-topic-search-result {
+  display: block;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--primary-low, #ddd);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+#ld-drawer-root .ld-topic-search-result:hover {
+  color: var(--tertiary, #3b82f6);
 }
 
 #ld-drawer-root .ld-drawer-reply-panel {
