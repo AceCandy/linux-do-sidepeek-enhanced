@@ -25,19 +25,28 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v0.8.6
+## 下载与安装 · v1.0.0
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.6/linux-do-sidepeek-0.8.6-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.6/linux-do-sidepeek-0.8.6-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v0.8.6/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linux-do-sidepeek-1.0.0-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linux-do-sidepeek-1.0.0-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v0.8.6) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.0.0) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 1.0.0 版本更新摘要
+
+- 新增增强收藏：等级下方悬浮入口、侧栏预览、分类拖拽、标签、备注及备份导入导出。
+- 标题和楼层支持就地收藏、移动分类；可在设置中关闭增强能力，保留直接收藏。
+- 接入 Gist 手动同步分类、标签和备注，提供行内配置和申请指引。
+- 本地整理不逐次联网；同一已验证会话内悬停直接显示一小时缓存，收藏变更后刷新。
+- 优化搜索高亮、主题与回复层级及移动端布局；取消收藏不再确认，其余提示统一样式。
+- 新增本机存储与 GitHub Gist 权限，升级扩展后请重新加载并刷新页面；Firefox 附件仍为未签名版本。
 
 ## 0.8.6 版本更新摘要
 
@@ -93,6 +102,15 @@
 
 ## 当前功能
 
+- 左上角等级按钮下方的五角星“收藏”与等级入口同尺寸：悬停展开约 380px 宽的紧凑列表，点击固定展开，Esc 收起；触屏和键盘可点击或按 Enter。按收藏夹筛选、搜索或排序，搜索匹配文字高亮；收藏的回复在主题标题下缩进展示楼层和摘要。点标题在侧栏阅读对应楼层，关闭侧栏返回原列表。
+- 楼层只保留收藏图标：悬停展开收藏夹，点击或按 Enter 固定展开，选择分类或新建后收藏。已收藏时显示当前收藏夹，可移动或直接取消。智能侧栏标题后也有收藏图标，与首帖共用同一条收藏；切帖、关闭或整页回退时清理旧入口。原站收藏成功但本机分类失败会单独提示，重试不重复创建书签。
+- 紧凑列表顶部直接提供“管理面板”和“刷新”。两种收藏视图的搜索框都有清空按钮，收藏及帖内搜索使用明黄色高亮。管理页分类拖拽时显示插入分割线，悬停条数处显示“···”，菜单只含“修改、删除”；修改在原名称处输入，Enter 保存，Esc 或点击外部取消，失败保留输入。全部收藏和未分类固定。条目中的彩色“收藏夹”与虚线 `# 标签` 分开显示。
+- “管理面板”打开详细管理页，点击弹窗外可关闭，条目上的“分类与备注”可编辑标签和备注；取消原站收藏直接执行，不再确认。未保存退出、删除收藏夹及 Gist 操作使用与界面一致的确认框，支持 Esc 取消。删除收藏夹只移到未分类，不删除原站书签；取消原站收藏后本机整理信息仍保留。
+- 侧栏设置可关闭“增强收藏”：隐藏收藏悬浮入口及标题增强按钮，楼层按钮恢复直接收藏/取消，停止自动刷新，整理数据保留。列表使用当前页面会话内一小时缓存，到期后台刷新，后台标签页或编辑期间延后；刷新页面重新读取。新增/取消收藏后更新缓存，也可手动刷新。分类新建、拖拽、改名及备注只写本机，不逐次请求账号接口；已验证会话内悬停/重开直接展示缓存，不清空列表、不请求账号。首次打开、CSRF 变化、登录标记消失、缓存失效或手动刷新时重新联网校验；仅服务端变化而页面会话标记未变时，由下一次刷新发现。
+- 原站收藏通过 `/u/{用户名}/bookmarks.json?page=N` 分页读取，先用 `/session/current.json` 确认账号。详细管理页的“更多”可导出/导入备份。整理数据按 L 站账号隔离：扩展使用 `chrome.storage.local`，油猴使用脚本管理器存储。JSON 只备份分类、标签和备注；仅允许当前账号合并导入，本机已有信息优先，不自动创建原站书签。暂无正文/图片归档。
+- Gist 手动同步：管理面板 → 更多 → Gist 同步，在行内密码框填写带 `gist` 权限的 GitHub Token；字段旁的问号提供申请入口和 ID 使用说明，支持悬停、键盘及手机点击。已保存的 Token 不回填，留空沿用，保存成功或退出后清空输入；页面内输入仍可能被原站脚本读取。首次 Gist ID 留空会询问并创建非公开 Gist。其他设备使用同一 L 站账号、同一 Gist ID 与有读写权限的 Token，点击“保存并同步”。扩展和油猴可共用；不会后台自动上传，原站收藏本身仍由 L 站同步。
+- Gist 仅保存分类（含顺序）、标签和备注，按字段与上次同步快照合并；冲突停止而不静默选边，请先备份并将两端冲突项改为一致。同步前本机快照可导出。Token 仅存本机、不进入导出；非公开 Gist **不加密**，持有链接的人可能读取，勿放敏感备注。断开仅清除本机配置，不删除云端 Gist。同步上限 900 KB；拒绝截断、公开或其他 L 站账号的 Gist。请避免多设备同时点击同步：写入前后会复查，但 Gist 不提供本实现可依赖的跨设备原子锁，仍存在极短并发覆盖窗口；必要时从 Gist 历史或同步前备份恢复。
+- 收藏整理数据上限为 4 MB；最多 200 个收藏夹、10000 条整理记录，每条最多 20 个标签和 2000 字备注。扩展新增 `storage` 权限，更新本地扩展后需重新加载并刷新 L 站页面。真实登录收藏接口尚待在线验证。
 - 智能预览优先复用原站正文组件与样式（不使用 iframe），支持原站轮播等正文装饰；正文组件不可用时回退现有智能渲染。接入依赖 Discourse 内部模块，网站升级可能触发回退。原站图片放大沿用站点交互。
 - 楼层统计与操作合为一排，以 `|` 分隔，不再显示楼层阅读量。表情汇总可点击选择、切换或取消反应。
 - 右下角第一排为刷新与帖内搜索，第二排为回顶与跳到最新回复，下方保留回复入口；帖内搜索覆盖当前整帖并支持分页。顶部不再重复显示刷新和回顶；Boost 使用紧凑尺寸。主题标签并入标题信息区。便捷阅读说明每次页面加载仅浮现一次，8 秒后消失，也可点 × 关闭，不占用正文空间。

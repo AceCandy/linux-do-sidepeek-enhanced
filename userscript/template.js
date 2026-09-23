@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      connect.linux.do
+// @connect      api.github.com
 // @grant        unsafeWindow
 // @license      MIT
 // @homepageURL  https://github.com/AceCandy/linux-do-sidepeek-enhanced
@@ -81,6 +82,16 @@
       } catch {
         // Dedicated userscript storage above is the primary persistence layer.
       }
+    }
+
+    async function readBookmarkData(key) {
+      if (typeof GM_getValue !== "function") throw new Error("脚本管理器存储不可用");
+      return await GM_getValue(key, null);
+    }
+
+    async function writeBookmarkData(key, value) {
+      if (typeof GM_setValue !== "function") throw new Error("脚本管理器存储不可用");
+      await GM_setValue(key, value);
     }
 
 /* @content */

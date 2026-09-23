@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Linux.do SidePeek Enhanced",
-  "version": "0.8.6",
+  "version": "1.0.0",
   "description": "基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。",
+  "permissions": ["storage"],
   "browser_specific_settings": {
     "gecko": {
       "id": "@linux-do-sidepeek",
@@ -15,7 +16,8 @@
   },
   "host_permissions": [
     "https://linux.do/t/*",
-    "https://connect.linux.do/*"
+    "https://connect.linux.do/*",
+    "https://api.github.com/gists*"
   ],
   "background": {
     "service_worker": "src/background.js"

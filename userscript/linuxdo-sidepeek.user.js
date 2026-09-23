@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      0.8.6
+// @version      1.0.0
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      connect.linux.do
+// @connect      api.github.com
 // @grant        unsafeWindow
 // @license      MIT
 // @homepageURL  https://github.com/AceCandy/linux-do-sidepeek-enhanced
@@ -194,6 +195,1143 @@
     --ld-topic-tracker-max-width: min(720px, calc(100vw - 32px));
   }
 
+  #ld-bookmarks-trigger {
+    position: fixed;
+    left: 10px;
+    top: 142px;
+    z-index: 2147483646;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--primary, #1f2937) 10%, transparent);
+    border-radius: 999px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #1f2937);
+    box-shadow: 0 8px 28px #0001;
+    cursor: pointer;
+  }
+
+  #ld-bookmarks-trigger,
+  #ld-trust-status summary {
+    font: 600 12px/1.5 system-ui, sans-serif;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  #ld-bookmarks-trigger svg {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    margin-inline: -4px;
+    fill: #d49a08;
+  }
+
+  #ld-bookmarks {
+    --ld-bookmark-accent: var(--tertiary, #147d64);
+    --ld-bookmark-muted: color-mix(in srgb, var(--primary, #1f2937) 65%, var(--secondary, #fff));
+    box-sizing: border-box;
+    inset: 0;
+    margin: auto;
+    width: min(1020px, calc(100vw - 48px));
+    height: min(780px, calc(100dvh - 80px));
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--primary, #1f2937) 12%, transparent);
+    border-radius: 16px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #1f2937);
+    box-shadow: 0 20px 70px #0003;
+    font: 14px/1.5 system-ui, sans-serif;
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+
+  #ld-bookmarks[open] {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #ld-bookmarks::backdrop {
+    background: #0f172a55;
+    backdrop-filter: blur(4px);
+  }
+
+  #ld-bookmarks [hidden],
+  #ld-bookmarks-trigger[hidden],
+  #ld-drawer-root .ld-topic-bookmark[hidden] {
+    display: none !important;
+  }
+
+  #ld-bookmark-confirm {
+    box-sizing: border-box;
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 24px;
+    border: 1px solid var(--primary-low, #dfe5e4);
+    border-radius: 16px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #1f2937);
+    box-shadow: 0 20px 70px #0003;
+    font: 14px/1.6 system-ui, sans-serif;
+  }
+
+  #ld-bookmark-confirm::backdrop { background: #0f172a55; backdrop-filter: blur(3px); }
+  #ld-bookmark-confirm h3 { margin: 0 0 12px; font-size: 18px; }
+  #ld-bookmark-confirm p { margin: 0 0 24px; overflow-wrap: anywhere; }
+  #ld-bookmark-confirm form { display: flex; justify-content: flex-end; gap: 10px; margin: 0; }
+  #ld-bookmark-confirm button {
+    width: auto;
+    margin: 0;
+    padding: 8px 16px;
+    border: 1px solid var(--primary-low, #dfe5e4);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: normal;
+    cursor: pointer;
+  }
+  #ld-bookmark-confirm .ld-bookmark-primary { background: var(--tertiary, #147d64); color: var(--secondary, #fff); }
+
+  #ld-bookmarks :is(h2, h3, p, fieldset) {
+    margin: 0;
+  }
+
+  #ld-bookmarks :is(input, select, textarea, button, summary) {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    font: inherit;
+    line-height: 1.5;
+    box-shadow: none;
+    border-radius: 8px;
+    color: inherit;
+    touch-action: manipulation;
+  }
+
+  #ld-bookmarks :is(button, summary) {
+    padding: 7px 11px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  #ld-bookmarks :is(button, summary):hover {
+    background: color-mix(in srgb, var(--primary, #1f2937) 6%, transparent);
+  }
+
+  #ld-bookmarks :disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  #ld-bookmarks :focus-visible,
+  #ld-bookmarks-trigger:focus-visible {
+    outline: 2px solid var(--ld-bookmark-accent, var(--tertiary, #147d64));
+    outline-offset: 2px;
+  }
+
+  #ld-bookmarks svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+    flex: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 26px;
+    border-bottom: 1px solid var(--primary-low, #e9eced);
+    position: relative;
+    z-index: 2;
+    flex: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-heading,
+  #ld-bookmarks .ld-bookmark-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-logo {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 44px;
+    border-radius: 11px;
+    color: #d49a08;
+    background: color-mix(in srgb, #d49a08 9%, transparent);
+  }
+
+  #ld-bookmarks h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 21px;
+    line-height: 1.35;
+  }
+
+  #ld-bookmarks .ld-bookmark-total {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ld-bookmark-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #ld-bookmarks .ld-bookmark-heading p {
+    margin-top: 4px;
+    color: var(--ld-bookmark-muted);
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-close {
+    padding: 8px;
+  }
+
+  #ld-bookmarks .ld-bookmark-more {
+    position: relative;
+  }
+
+  #ld-bookmarks .ld-bookmark-manage {
+    display: none;
+  }
+
+  #ld-bookmarks summary {
+    display: block;
+    list-style: none;
+    white-space: nowrap;
+    color: var(--ld-bookmark-muted);
+  }
+
+  #ld-bookmarks summary::-webkit-details-marker {
+    display: none;
+  }
+
+  #ld-bookmarks summary::marker {
+    content: "";
+  }
+
+  #ld-bookmarks summary::before,
+  #ld-bookmarks summary::after {
+    display: none;
+    content: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 10px);
+    width: 232px;
+    padding: 8px;
+    border: 1px solid var(--primary-low, #e5e7eb);
+    border-radius: 12px;
+    background: var(--secondary, #fff);
+    box-shadow: 0 12px 32px #0002;
+  }
+
+  #ld-bookmarks .ld-bookmark-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+  }
+
+  #ld-bookmarks .ld-bookmark-backup {
+    border-top: 1px solid var(--primary-low, #e9eced);
+    margin-top: 6px;
+    padding-top: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-backup :is(strong, p) {
+    display: block;
+    padding: 0 11px 6px;
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-backup p {
+    color: var(--ld-bookmark-muted);
+  }
+
+  #ld-bookmarks .ld-bookmark-workspace {
+    display: grid;
+    grid-template-columns: 196px minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    padding: 20px 12px;
+    border-right: 1px solid var(--primary-low, #e9eced);
+    background: color-mix(in srgb, var(--primary, #1f2937) 2%, var(--secondary, #fff));
+    overflow: auto;
+  }
+
+  #ld-bookmarks .ld-bookmark-sidebar-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 10px;
+    font-size: 12px;
+    color: var(--ld-bookmark-muted);
+  }
+
+  #ld-bookmarks .ld-bookmark-sidebar-title button {
+    color: var(--ld-bookmark-accent);
+    font-size: 12px;
+    padding: 5px 7px;
+  }
+
+  #ld-bookmarks .ld-bookmark-folders {
+    display: grid;
+    gap: 4px;
+  }
+
+  #ld-bookmarks .ld-bookmark-folders button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 10px;
+    text-align: left;
+  }
+
+  #ld-bookmarks .ld-bookmark-folders svg {
+    width: 17px;
+    height: 17px;
+    opacity: 0.75;
+  }
+
+  #ld-bookmarks .ld-bookmark-folders [aria-pressed="true"] {
+    background: color-mix(in srgb, var(--ld-bookmark-accent) 10%, transparent);
+    color: var(--ld-bookmark-accent);
+    font-weight: 600;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-count {
+    margin-left: auto;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row {
+    position: relative;
+    min-width: 0;
+    flex: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row[draggable="true"] > button {
+    cursor: grab;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row[data-drop-position]::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    top: -3px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--ld-bookmark-accent);
+    box-shadow: 0 0 0 1px var(--secondary, #fff);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row[data-drop-position="after"]::after {
+    top: auto;
+    bottom: -3px;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-rename {
+    margin: 0;
+    padding: 3px 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-rename input {
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 7px 9px;
+  }
+
+  @media (max-width: 720px) {
+    #ld-bookmarks .ld-bookmark-folder-row[data-drop-position]::after {
+      top: 3px;
+      bottom: 3px;
+      left: 0;
+      right: auto;
+      width: 3px;
+      height: auto;
+    }
+    #ld-bookmarks .ld-bookmark-folder-row[data-drop-position="after"]::after {
+      left: auto;
+      right: 0;
+    }
+    #ld-bookmarks .ld-bookmark-folder-rename { width: 160px; }
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-more {
+    position: absolute;
+    right: 3px;
+    top: 4px;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-more > summary {
+    padding: 5px 8px;
+    visibility: hidden;
+    color: var(--primary, #1f2937);
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row:has(details):is(:hover, :focus-within) .ld-bookmark-folder-count,
+  #ld-bookmarks .ld-bookmark-folder-row:has(details[open]) .ld-bookmark-folder-count {
+    visibility: hidden;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-row:is(:hover, :focus-within) summary,
+  #ld-bookmarks .ld-bookmark-folder-more[open] > summary {
+    visibility: visible;
+  }
+
+  #ld-bookmarks .ld-bookmark-folder-menu {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    z-index: 5;
+    width: 130px;
+    padding: 4px;
+    border: 1px solid var(--primary-low, #ddd);
+    border-radius: 10px;
+    background: var(--secondary, #fff);
+    box-shadow: 0 6px 20px #0002;
+  }
+
+  @media (hover: none) {
+    #ld-bookmarks .ld-bookmark-folder-more > summary { visibility: visible; }
+    #ld-bookmarks .ld-bookmark-folder-row:has(details) .ld-bookmark-folder-count { visibility: hidden; }
+  }
+
+  #ld-bookmarks .ld-bookmark-local-note {
+    margin: auto 10px 0;
+    padding-top: 20px;
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--ld-bookmark-muted);
+  }
+
+  #ld-bookmarks .ld-bookmark-main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  #ld-bookmarks .ld-bookmark-browse {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  #ld-bookmarks fieldset {
+    padding: 0;
+    min-width: 0;
+    border: 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-tools {
+    padding: 22px 24px 18px;
+    flex: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 116px;
+    gap: 12px;
+  }
+
+  #ld-bookmarks :is(input, select, textarea) {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--primary-low, #dfe5e4);
+    background: var(--secondary, #fff);
+  }
+
+  #ld-bookmarks .ld-bookmark-search-wrap {
+    position: relative;
+    display: block;
+    min-width: 0;
+    margin: 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-search-wrap svg {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    width: 17px;
+    height: 17px;
+    color: var(--ld-bookmark-muted);
+    pointer-events: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-search {
+    padding-left: 38px;
+    padding-right: 36px;
+  }
+
+  #ld-bookmarks .ld-bookmark-search::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-search-clear {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 8px;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  #ld-bookmarks .ld-bookmark-list {
+    flex: 1;
+    min-height: 0;
+    padding: 0 24px 16px;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  #ld-bookmarks .ld-bookmark-item {
+    padding: 18px 0;
+    border-top: 1px solid var(--primary-low, #e9eced);
+    overflow-wrap: anywhere;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 180px;
+  }
+
+  #ld-bookmarks .ld-bookmark-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 8px;
+    margin-top: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--ld-bookmark-muted);
+  }
+
+  #ld-bookmarks .ld-bookmark-item a {
+    display: block;
+    color: var(--primary, #1f2937);
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  #ld-bookmarks .ld-bookmark-item a:hover {
+    color: var(--ld-bookmark-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  #ld-bookmarks .ld-bookmark-excerpt {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin: 0;
+    color: var(--ld-bookmark-muted);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  #ld-bookmarks .ld-bookmark-topic-detail {
+    margin-top: 6px;
+  }
+
+  #ld-bookmarks .ld-bookmark-reply {
+    margin: 9px 0 0 4px;
+    padding: 7px 10px;
+    border-left: 2px solid color-mix(in srgb, var(--ld-bookmark-accent) 35%, transparent);
+    border-radius: 0 6px 6px 0;
+    background: color-mix(in srgb, var(--primary, #1f2937) 3%, transparent);
+  }
+
+  #ld-bookmarks .ld-bookmark-floor {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ld-bookmark-accent);
+  }
+
+  #ld-bookmarks mark {
+    padding: 0;
+    border-radius: 2px;
+    background: #ffe03d;
+    color: #171717;
+  }
+
+  #ld-bookmarks .ld-bookmark-excerpt:empty {
+    display: none;
+  }
+
+  #ld-bookmarks .ld-bookmark-note {
+    margin-top: 8px;
+    color: var(--ld-bookmark-muted);
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-note.ld-bookmark-match {
+    -webkit-line-clamp: unset;
+  }
+
+  #ld-bookmarks .ld-bookmark-chips {
+    display: contents;
+  }
+
+  #ld-bookmarks .ld-bookmark-chips span {
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    color: var(--ld-bookmark-muted);
+    background: color-mix(in srgb, var(--primary, #1f2937) 5%, transparent);
+    overflow-wrap: anywhere;
+  }
+
+  #ld-bookmarks .ld-bookmark-chips .ld-bookmark-folder-chip {
+    color: var(--ld-bookmark-accent);
+    background: color-mix(in srgb, var(--ld-bookmark-accent) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ld-bookmark-accent) 35%, transparent);
+  }
+
+  #ld-bookmarks .ld-bookmark-chips .ld-bookmark-tag-chip {
+    background: transparent;
+    border: 1px dashed var(--primary-low, #b7bdc6);
+  }
+
+  #ld-bookmarks .ld-bookmark-row-meta button {
+    flex: none;
+    margin-left: auto;
+    color: var(--ld-bookmark-accent);
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  #ld-bookmarks .ld-bookmark-editor {
+    box-sizing: border-box;
+    height: 100%;
+    padding: 22px 32px;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync {
+    height: 100%;
+    box-sizing: border-box;
+    overflow: auto;
+    padding: 20px 24px;
+    display: grid;
+    align-content: start;
+    gap: 14px;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync fieldset,
+  #ld-bookmarks .ld-bookmark-token,
+  #ld-bookmarks .ld-bookmark-sync label {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync p {
+    color: var(--ld-bookmark-muted);
+    line-height: 1.6;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync .ld-bookmark-edit-actions {
+    padding-block: 10px;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  #ld-bookmarks .ld-bookmark-help-button {
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    min-height: 20px;
+    border: 1px solid var(--ld-bookmark-muted);
+    border-radius: 50%;
+    color: var(--ld-bookmark-muted);
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync-tip {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    box-sizing: border-box;
+    width: min(340px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+    overflow: auto;
+    padding: 14px 16px;
+    border: 1px solid var(--primary-low, #ddd);
+    border-radius: 12px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #222);
+    box-shadow: 0 8px 28px #0003;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync-tip p { margin: 8px 0 0; }
+  #ld-bookmarks .ld-bookmark-sync-tip a { color: var(--tertiary, #1769aa); text-decoration: underline; }
+
+  @media (max-width: 720px) {
+    #ld-bookmarks .ld-bookmark-sync {
+      padding: 12px;
+      gap: 8px;
+    }
+  }
+
+  #ld-bookmarks .ld-bookmark-back {
+    margin-left: -10px;
+    color: var(--ld-bookmark-muted);
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-editor h3 {
+    font-size: 20px;
+    margin: 14px 0 6px;
+  }
+
+  #ld-bookmarks .ld-bookmark-edit-title {
+    color: var(--ld-bookmark-muted);
+    overflow-wrap: anywhere;
+    margin-bottom: 24px;
+    font-size: 13px;
+  }
+
+  #ld-bookmarks .ld-bookmark-editor label {
+    display: block;
+    margin: 0 0 18px;
+    font-weight: 500;
+  }
+
+  #ld-bookmarks .ld-bookmark-editor :is(input, textarea, select) {
+    display: block;
+    margin-top: 7px;
+    font-weight: 400;
+  }
+
+  #ld-bookmarks .ld-bookmark-field-hint {
+    margin-left: 8px;
+    color: var(--ld-bookmark-muted);
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  #ld-bookmarks textarea {
+    resize: vertical;
+    min-height: 90px;
+  }
+
+  #ld-bookmarks .ld-bookmark-edit-actions,
+  #ld-bookmarks .ld-bookmark-folder-form > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  #ld-bookmarks .ld-bookmark-edit-actions {
+    position: sticky;
+    bottom: 0;
+    padding-block: 12px;
+    background: var(--secondary, #fff);
+  }
+
+  #ld-bookmarks button.ld-bookmark-primary {
+    background: var(--ld-bookmark-accent);
+    color: var(--secondary, #fff);
+    padding-inline: 20px;
+    font-weight: 600;
+  }
+
+  #ld-bookmarks button.ld-bookmark-primary:hover {
+    background: color-mix(in srgb, var(--ld-bookmark-accent) 85%, var(--primary, #1f2937));
+  }
+
+  #ld-bookmarks .ld-bookmark-remove {
+    margin-left: auto;
+    color: var(--danger, #ba423c);
+    font-size: 12px;
+  }
+
+  #ld-bookmarks .ld-bookmark-empty {
+    padding: 56px 12px;
+    text-align: center;
+  }
+
+  #ld-bookmarks .ld-bookmark-empty p {
+    margin: 10px 0;
+    color: var(--ld-bookmark-muted);
+    font-size: 13px;
+  }
+
+  #ld-bookmarks .ld-bookmark-empty button {
+    color: var(--ld-bookmark-accent);
+  }
+
+  #ld-bookmarks .ld-bookmark-status {
+    flex: none;
+    min-height: 18px;
+    padding: 9px 24px;
+    border-top: 1px solid var(--primary-low, #e9eced);
+    color: var(--ld-bookmark-muted);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 720px) {
+    #ld-bookmarks {
+      width: calc(100vw - 20px);
+      height: calc(100dvh - 24px);
+      border-radius: 12px;
+    }
+
+    #ld-bookmarks .ld-bookmark-head {
+      padding: 16px;
+      gap: 8px;
+    }
+
+    #ld-bookmarks h2 {
+      font-size: 18px;
+    }
+
+    #ld-bookmarks .ld-bookmark-heading,
+    #ld-bookmarks .ld-bookmark-head-actions {
+      gap: 7px;
+    }
+
+    #ld-bookmarks .ld-bookmark-logo {
+      display: none;
+    }
+
+    #ld-bookmarks .ld-bookmark-workspace {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #ld-bookmarks .ld-bookmark-sidebar {
+      flex: none;
+      padding: 10px 12px;
+      border-right: 0;
+      border-bottom: 1px solid var(--primary-low, #e9eced);
+      gap: 7px;
+      max-height: 38%;
+    }
+
+    #ld-bookmarks .ld-bookmark-folders {
+      display: flex;
+      overflow: auto;
+      flex: none;
+    }
+
+    #ld-bookmarks .ld-bookmark-folders button {
+      width: auto;
+      max-width: 200px;
+      flex: none;
+      padding: 7px 9px;
+      font-size: 12px;
+    }
+
+    #ld-bookmarks .ld-bookmark-local-note {
+      display: none;
+    }
+
+    #ld-bookmarks .ld-bookmark-main {
+      flex: 1;
+    }
+
+    #ld-bookmarks .ld-bookmark-tools {
+      padding: 14px 14px 12px;
+    }
+
+    #ld-bookmarks .ld-bookmark-filters {
+      grid-template-columns: minmax(0, 1fr) 100px;
+      gap: 7px;
+      font-size: 12px;
+    }
+
+    #ld-bookmarks .ld-bookmark-list {
+      padding-inline: 14px;
+    }
+
+    #ld-bookmarks .ld-bookmark-item a {
+      font-size: 15px;
+    }
+
+    #ld-bookmarks .ld-bookmark-editor {
+      padding: 12px 18px 20px;
+    }
+
+    #ld-bookmarks .ld-bookmark-status {
+      padding-inline: 14px;
+    }
+  }
+
+  #ld-bookmarks.ld-bookmark-compact {
+    position: fixed;
+    inset: var(--ld-bookmark-panel-top, 142px) auto auto var(--ld-bookmark-panel-left, 10px);
+    z-index: 2147483646;
+    width: min(380px, calc(100vw - 20px));
+    height: min(500px, calc(100dvh - var(--ld-bookmark-panel-top, 142px) - 12px));
+    margin: 0;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px #0002;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-head {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact h2 {
+    font-size: 15px;
+    gap: 6px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-head-actions {
+    gap: 2px;
+    font-size: 12px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-more {
+    display: none;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-manage {
+    display: block;
+    color: var(--ld-bookmark-accent);
+    padding-inline: 6px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact :is(.ld-bookmark-logo, .ld-bookmark-heading p, .ld-bookmark-local-note,
+      .ld-bookmark-sidebar-title, .ld-bookmark-folder-form, .ld-bookmark-backup,
+      .ld-bookmark-topic-detail:not(.ld-bookmark-match), .ld-bookmark-note:not(.ld-bookmark-match),
+      .ld-bookmark-chips:not(.ld-bookmark-match), .ld-bookmark-row-meta button) {
+    display: none;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-workspace {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-sidebar {
+    flex: none;
+    padding: 8px;
+    gap: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--primary-low, #e9eced);
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-folders {
+    display: flex;
+    overflow: auto;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-folders button {
+    flex: none;
+    width: auto;
+    max-width: 180px;
+    padding: 5px 8px;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-main {
+    flex: 1;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-tools {
+    padding: 10px 12px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-filters {
+    grid-template-columns: minmax(0, 1fr) 96px;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-list {
+    padding: 0 12px 8px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-item {
+    padding: 10px 0;
+    contain-intrinsic-size: auto 62px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-row-meta {
+    margin-bottom: 0;
+    font-size: 10px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-item a {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 13px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-item a.ld-bookmark-match {
+    -webkit-line-clamp: unset;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-excerpt {
+    font-size: 12px;
+  }
+
+  #ld-bookmarks.ld-bookmark-compact .ld-bookmark-status {
+    padding: 7px 12px;
+    font-size: 10px;
+  }
+
+  #ld-bookmark-picker {
+    box-sizing: border-box;
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    width: min(270px, calc(100vw - 20px));
+    max-height: min(360px, calc(100dvh - 20px));
+    overflow: hidden;
+    padding: 14px;
+    border: 1px solid var(--primary-low, #ddd);
+    border-radius: 12px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #1f2937);
+    box-shadow: 0 8px 28px #0002;
+    font: 13px/1.5 system-ui, sans-serif;
+  }
+
+  #ld-bookmark-picker:popover-open {
+    display: flex;
+    flex-direction: column;
+  }
+
+  #ld-bookmark-picker .ld-bookmark-picker-folders {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  #ld-bookmark-picker > :is(strong, p, form) {
+    flex: none;
+  }
+
+  #ld-bookmark-picker .ld-bookmark-picker-remove {
+    flex: none;
+    margin-top: 8px;
+    color: var(--danger, #b91c1c);
+    text-align: center;
+  }
+
+  #ld-bookmark-picker [aria-pressed="true"]::after {
+    content: " ✓ 当前";
+    float: right;
+    font-size: 11px;
+  }
+
+  #ld-bookmark-picker [hidden] {
+    display: none !important;
+  }
+
+  #ld-bookmark-picker :is(button, input) {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
+  #ld-bookmark-picker button {
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+
+  #ld-bookmark-picker button:hover,
+  #ld-bookmark-picker [aria-pressed="true"] {
+    background: color-mix(in srgb, var(--tertiary, #147d64) 10%, transparent);
+    color: var(--tertiary, #147d64);
+  }
+
+  #ld-bookmark-picker :focus-visible {
+    outline: 2px solid var(--tertiary, #147d64);
+    outline-offset: -2px;
+  }
+
+  #ld-bookmark-picker :disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  #ld-bookmark-picker .ld-bookmark-picker-status {
+    margin: 6px 0 10px;
+    color: var(--primary-medium, #64748b);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  #ld-bookmark-picker form {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--primary-low, #ddd);
+  }
+
+  #ld-bookmark-picker input {
+    border-color: var(--primary-low, #ddd);
+  }
+
+  #ld-bookmark-picker button[type="submit"] {
+    background: var(--tertiary, #147d64);
+    color: var(--secondary, #fff);
+    text-align: center;
+  }
+
   #ld-trust-status {
     position: fixed;
     left: 10px;
@@ -239,6 +1377,11 @@
 
   #ld-trust-status summary::-webkit-details-marker {
     display: none;
+  }
+
+  #ld-trust-status summary::after {
+    display: none;
+    content: none;
   }
 
   #ld-trust-status summary::before {
@@ -789,8 +1932,14 @@
   #ld-drawer-root .ld-drawer-title-group {
     min-width: 0;
     width: 100%;
-    display: grid;
-    gap: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  #ld-drawer-root .ld-topic-bookmark {
+    display: inline-flex;
+    flex: none;
   }
 
   #ld-drawer-root .ld-drawer-title {
@@ -1205,8 +2354,8 @@
   }
 
   #ld-drawer-root ::highlight(ld-topic-search) {
-    background-color: #ffe066;
-    color: #202020;
+    background-color: #ffe03d;
+    color: #171717;
   }
 
   #ld-drawer-root .ld-drawer-reply-panel {
@@ -2353,6 +3502,16 @@
       }
     }
 
+    async function readBookmarkData(key) {
+      if (typeof GM_getValue !== "function") throw new Error("脚本管理器存储不可用");
+      return await GM_getValue(key, null);
+    }
+
+    async function writeBookmarkData(key, value) {
+      if (typeof GM_setValue !== "function") throw new Error("脚本管理器存储不可用");
+      await GM_setValue(key, value);
+    }
+
     const ROOT_ID = "ld-drawer-root";
     const IMAGE_PREVIEW_ROOT_ID = "ld-image-preview-root";
     const PAGE_OPEN_CLASS = "ld-drawer-page-open";
@@ -2382,6 +3541,7 @@
       replyOrder: "default",
       floatingReplyButton: "on",
       showTrustStatus: "on",
+      enhancedBookmarks: "on",
       listAlignLeft: "off",
       drawerWidth: "narrow",
       drawerWidthCustom: 720,
@@ -2556,6 +3716,14 @@
       topicTrackerRefreshLoadingObserved: false,
       availableReactions: null,
       toastStack: null,
+      bookmarks: {
+        dialog: null, trigger: null, controller: null, user: null, token: "", items: [], data: null,
+        complete: false, verified: false, loading: false, busy: false, editingKey: "", returnToList: false,
+        message: "", skipped: 0, folder: "*", listScrollTop: 0, editingValues: "",
+        compact: false, pinned: false, closeTimer: 0, restoreFocus: true, backdropPointerDown: false,
+        picker: null, pickerTarget: null, pickerController: null, pickerPinned: false, pickerCloseTimer: 0,
+        cacheAt: 0, cacheVersion: 0, refreshTimer: 0, refreshController: null, confirmation: null
+      },
       trustPanel: null,
       trustPinned: false,
       trustContent: null,
@@ -2569,6 +3737,8 @@
       bindEvents();
       watchLocationChanges();
       buildTrustStatusPanel();
+      buildBookmarkPanel();
+      syncBookmarkFeature();
       initPreviewAcceleration();
     }
 
@@ -2805,6 +3975,7 @@
               </div>
               <div class="ld-drawer-title-group">
                 <h2 class="ld-drawer-title">点击帖子标题开始预览</h2>
+                <span class="ld-topic-bookmark" hidden></span>
               </div>
               <div class="ld-drawer-meta"></div>
             </div>
@@ -2899,6 +4070,14 @@
                     <option value="on">开启</option>
                   </select>
                   <span class="ld-setting-hint">宽屏帖子列表和搜索页靠左；原站边栏正常展开收起，独立于抽屉开关和悬浮或挤压模式</span>
+                </label>
+                <label class="ld-setting-field">
+                  <span class="ld-setting-label">增强收藏</span>
+                  <select class="ld-setting-control" data-setting="enhancedBookmarks">
+                    <option value="on">开启</option>
+                    <option value="off">关闭</option>
+                  </select>
+                  <span class="ld-setting-hint">关闭后隐藏收藏悬浮入口，楼层按钮恢复直接收藏/取消；已有分类、标签和备注保留</span>
                 </label>
                 <label class="ld-setting-field">
                   <span class="ld-setting-label">抽屉宽度</span>
@@ -3111,6 +4290,12 @@
         return;
       }
 
+      if (target.closest("#ld-bookmarks, #ld-bookmarks-trigger, #ld-bookmark-picker, #ld-bookmark-confirm")) return;
+      if (state.bookmarks.dialog?.open) {
+        if (!state.bookmarks.compact) return;
+        closeBookmarkPanel(false);
+      }
+
       const link = target.closest("a[href]");
       const topicUrl = getTopicUrlFromLink(link);
       if (!topicUrl && (target.closest(NATIVE_OVERLAY_SELECTOR) || target.closest(".d-header-wrap, .sidebar-wrapper"))) {
@@ -3170,6 +4355,18 @@
     }
 
     function handleKeydown(event) {
+      if (state.bookmarks.confirmation) return;
+      if (state.bookmarks.picker?.matches(":popover-open") && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeBookmarkPicker(true);
+        return;
+      }
+      if (state.bookmarks.dialog?.open) {
+        if (event.key === "Escape" && state.bookmarks.dialog.querySelector(".ld-bookmark-sync-tip:popover-open")) return;
+        if (state.bookmarks.compact && event.key === "Escape") dismissBookmarkPanel(event);
+        if (!state.bookmarks.compact || state.bookmarks.dialog.contains(event.target) || event.key === "Escape") return;
+      }
       if (hasNativeOverlay()) {
         return;
       }
@@ -3314,6 +4511,13 @@
       });
       window.addEventListener("pagehide", () => {
         state.previewPageHidden = true;
+        clearTimeout(state.bookmarks.refreshTimer);
+        state.bookmarks.refreshController?.abort();
+        state.bookmarks.confirmation?.close();
+        closeBookmarkPicker();
+        closeBookmarkPanel(false);
+        state.bookmarks.returnToList = false;
+        state.bookmarks.controller?.abort();
         setTopicSearchOpen(false);
         stopReading();
         state.abortController?.abort();
@@ -3324,6 +4528,7 @@
       });
       window.addEventListener("pageshow", () => {
         state.previewPageHidden = false;
+        scheduleBookmarkRefresh();
         queuePrefetchScan();
         if (state.currentUrl && !state.currentTopic) {
           loadTopic(state.currentUrl, state.currentFallbackTitle, state.currentTopicIdHint);
@@ -3403,7 +4608,7 @@
         document.body.classList.contains(PAGE_OPEN_CLASS) && state.currentTopic &&
         !state.currentTopic.__sidePeekIframeShell && !state.root?.classList.contains(IFRAME_MODE_CLASS) &&
         state.settingsPanel?.hidden !== false && state.replyPanel?.hidden !== false && state.imagePreview?.hidden !== false &&
-        !hasNativeOverlay();
+        !state.bookmarks.dialog?.open && !hasNativeOverlay();
     }
 
     function startReading() {
@@ -3636,6 +4841,7 @@
     }
 
     function openDrawer(topicUrl, fallbackTitle, activeLink) {
+      closeBookmarkPicker();
       ensureDrawer();
       cacheCurrentTopic();
 
@@ -3747,6 +4953,7 @@
     }
 
     function closeDrawer() {
+      closeBookmarkPicker();
       setTopicSearchOpen(false);
       stopReading();
       cacheCurrentTopic();
@@ -3791,6 +4998,12 @@
       syncNavigationState();
       syncLatestRepliesRefreshUI();
       scheduleTopicTrackerPositionSync();
+      if (state.bookmarks.returnToList) {
+        state.bookmarks.returnToList = false;
+        state.bookmarks.pinned = true;
+        state.bookmarks.trigger.focus();
+        openBookmarkPanel("", false, state.bookmarks.compact);
+      }
     }
 
     function handleTopicTrackerClick(target) {
@@ -4011,6 +5224,7 @@
     }
 
     async function loadTopic(topicUrl, fallbackTitle, topicIdHint = null, options = {}) {
+      closeBookmarkPicker();
       closeImagePreview();
       cancelLoadMoreRequest();
       cancelDirectRepliesRequest();
@@ -4138,6 +5352,10 @@
       state.currentResolvedTargetPostNumber = resolvedTargetPostNumber;
       state.deferOwnerFilterAutoLoad = shouldDeferOwnerFilterAutoLoad(viewModel);
       state.title.textContent = topic.title || fallbackTitle || "帖子预览";
+      const topicBookmark = state.root.querySelector(".ld-topic-bookmark");
+      const firstPost = posts.find(post => post.post_number === 1);
+      topicBookmark.replaceChildren(...(firstPost ? [buildPostBookmarkButton(firstPost)] : []));
+      topicBookmark.hidden = !firstPost || state.settings.enhancedBookmarks === "off";
       renderTopicMeta(topic, viewModel.posts.length);
       state.content.replaceChildren(buildTopicView(topic, viewModel));
       syncLatestRepliesRefreshUI();
@@ -4499,16 +5717,7 @@
       copyLinkBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
       copyLinkBtn.addEventListener("click", () => handleCopyPostLink(copyLinkBtn, post));
 
-      const isBookmarked = post.bookmarked === true;
-      const bookmarkBtn = document.createElement("button");
-      bookmarkBtn.type = "button";
-      bookmarkBtn.className = "ld-post-icon-btn" + (isBookmarked ? " ld-post-icon-btn--bookmarked" : "");
-      bookmarkBtn.setAttribute("aria-label", isBookmarked ? "取消书签" : "添加书签");
-      bookmarkBtn.title = "将此帖子加入书签";
-      bookmarkBtn.innerHTML = isBookmarked
-        ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`
-        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`;
-      bookmarkBtn.addEventListener("click", () => handlePostBookmark(bookmarkBtn, post));
+      const bookmarkBtn = buildPostBookmarkButton(post);
 
       const flagWrap = document.createElement("div");
       flagWrap.className = "ld-flag-wrap";
@@ -6062,6 +7271,13 @@
     }
 
     function syncLatestRepliesRefreshUI() {
+      if (!state.currentTopic || state.currentTopic.__sidePeekIframeShell) {
+        const topicBookmark = state.root?.querySelector(".ld-topic-bookmark");
+        if (topicBookmark) {
+          topicBookmark.hidden = true;
+          topicBookmark.replaceChildren();
+        }
+      }
       if (!state.latestRepliesRefreshButton) {
         return;
       }
@@ -6628,17 +7844,81 @@
       }
     }
 
-    async function handlePostBookmark(btn, post) {
-      if (btn.disabled) {
+    function buildPostBookmarkButton(post) {
+      const button = document.createElement("button"), token = getCsrfToken();
+      button.type = "button";
+      button.dataset.bookmarkPostId = String(post.id);
+      button.setAttribute("aria-haspopup", "dialog");
+      button.setAttribute("aria-controls", "ld-bookmark-picker");
+      button.setAttribute("aria-expanded", "false");
+      renderPostBookmarkButton(button, post.bookmarked === true);
+      button.addEventListener("click", () => state.settings.enhancedBookmarks === "off"
+        ? handlePostBookmark(button, post, token) : openBookmarkPicker(button, post, token));
+      button.addEventListener("pointerenter", event => {
+        clearTimeout(state.bookmarks.pickerCloseTimer);
+        if (event.pointerType === "mouse" && state.settings.enhancedBookmarks !== "off") openBookmarkPicker(button, post, token, true);
+      });
+      button.addEventListener("pointerleave", scheduleBookmarkPickerClose);
+      button.addEventListener("focusout", scheduleBookmarkPickerClose);
+      return button;
+    }
+
+    function renderPostBookmarkButton(btn, bookmarked) {
+      btn.className = "ld-post-icon-btn" + (bookmarked ? " ld-post-icon-btn--bookmarked" : "");
+      btn.setAttribute("aria-label", bookmarked ? "查看或移动收藏" : "收藏到文件夹");
+      btn.title = bookmarked ? "已收藏，悬停查看收藏夹，点击固定" : "悬停选择收藏夹，点击固定";
+      if (state.settings.enhancedBookmarks === "off") {
+        btn.setAttribute("aria-label", bookmarked ? "取消收藏" : "收藏");
+        btn.title = bookmarked ? "取消收藏" : "收藏";
+        btn.removeAttribute("aria-haspopup");
+        btn.removeAttribute("aria-controls");
+      } else {
+        btn.setAttribute("aria-haspopup", "dialog");
+        btn.setAttribute("aria-controls", "ld-bookmark-picker");
+      }
+      btn.setAttribute("aria-pressed", String(bookmarked));
+      btn.innerHTML = bookmarked
+        ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`;
+    }
+
+    function syncPostBookmarkState(key, bookmarked, bookmarkId = null) {
+      const topics = [state.currentTopic, state.currentLatestRepliesTopic,
+        ...[...state.topicCache.values()].flatMap(entry => [entry.topic, entry.latestRepliesTopic])];
+      for (const topic of topics) {
+        for (const post of topic?.post_stream?.posts || []) {
+          if (`Post:${post.id}` === key) {
+            post.bookmarked = bookmarked;
+            post.bookmark_id = bookmarkId;
+          }
+        }
+      }
+      for (const button of state.root?.querySelectorAll("[data-bookmark-post-id]") || []) {
+        if (`Post:${button.dataset.bookmarkPostId}` === key) renderPostBookmarkButton(button, bookmarked);
+      }
+    }
+
+    async function handlePostBookmark(btn, post, token) {
+      if (btn.disabled || state.bookmarks.busy) {
         return;
       }
 
       btn.disabled = true;
+      state.bookmarks.busy = true;
       const wasBookmarked = post.bookmarked === true;
 
       try {
-        if (wasBookmarked && post.bookmark_id) {
-          await performDeleteBookmark(post.bookmark_id);
+        if (!token || token !== getCsrfToken()) throw new Error("登录状态已变化，请刷新主题后重试");
+        if (wasBookmarked) {
+          let id = post.bookmark_id;
+          if (!id) {
+            const user = await fetchBookmarkUser();
+            const result = await fetchAllBookmarks(user);
+            await assertBookmarkAccount(user, token);
+            id = result.items.find(item => item.key === `Post:${post.id}`)?.id;
+          }
+          if (!id) throw new Error("未找到对应书签，请刷新主题后重试");
+          await performDeleteBookmark(id);
           post.bookmarked = false;
           post.bookmark_id = null;
         } else {
@@ -6650,16 +7930,16 @@
         }
 
         const nowBookmarked = post.bookmarked === true;
+        invalidateBookmarkCache();
+        syncPostBookmarkState(`Post:${post.id}`, nowBookmarked, post.bookmark_id);
         showToast(nowBookmarked ? "已添加书签" : "已取消书签", "success");
-        btn.className = "ld-post-icon-btn" + (nowBookmarked ? " ld-post-icon-btn--bookmarked" : "");
-        btn.setAttribute("aria-label", nowBookmarked ? "取消书签" : "添加书签");
-        btn.innerHTML = nowBookmarked
-          ? `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`
-          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17l-7-3.5L5 21V4z"/></svg>`;
+        renderPostBookmarkButton(btn, nowBookmarked);
       } catch (error) {
         showToast(`书签操作失败：${error?.message || "请求未完成"}`, "error");
       } finally {
         btn.disabled = false;
+        state.bookmarks.busy = false;
+        scheduleBookmarkRefresh();
       }
     }
 
@@ -6671,6 +7951,7 @@
 
       const response = await fetch(`${location.origin}/bookmarks`, {
         method: "POST",
+        signal: AbortSignal.timeout(15000),
         credentials: "include",
         headers: {
           Accept: "application/json",
@@ -6697,6 +7978,7 @@
 
       const response = await fetch(`${location.origin}/bookmarks/${bookmarkId}`, {
         method: "DELETE",
+        signal: AbortSignal.timeout(15000),
         credentials: "include",
         headers: {
           Accept: "application/json",
@@ -6709,6 +7991,1401 @@
         const data = await response.json().catch(() => null);
         throw new Error(data?.errors?.join("；") || `取消书签失败：${response.status}`);
       }
+    }
+
+    function normalizeBookmarkData(value) {
+      if (value === null) return { version: 1, folders: [], items: {} };
+      const invalid = () => { throw new Error("收藏整理数据格式无效，未覆盖已有数据"); };
+      if (new TextEncoder().encode(JSON.stringify(value)).length > 4 * 1024 * 1024) {
+        throw new Error("收藏整理数据超过 4 MB 上限，请精简备注后重试");
+      }
+      if (!value || value.version !== 1 || !Array.isArray(value.folders) || value.folders.length > 200 ||
+          !value.items || typeof value.items !== "object" || Array.isArray(value.items) || Object.keys(value.items).length > 10000) invalid();
+      const folders = [];
+      for (const folder of value.folders) {
+        if (typeof folder !== "string" || !folder.trim() || folder.length > 60) invalid();
+        if (!folders.includes(folder.trim())) folders.push(folder.trim());
+      }
+      const items = {};
+      for (const [key, item] of Object.entries(value.items)) {
+        if (!/^(Post|Topic):[1-9]\d*$/.test(key) || !Number.isSafeInteger(Number(key.split(":")[1])) ||
+            !item || typeof item.folder !== "string" || (item.folder && !folders.includes(item.folder)) ||
+            typeof item.note !== "string" || item.note.length > 2000 || !Array.isArray(item.tags) ||
+            item.tags.length > 20 || item.tags.some(tag => typeof tag !== "string" || !tag.trim() || tag.length > 40)) invalid();
+        items[key] = { folder: item.folder, tags: [...new Set(item.tags.map(tag => tag.trim()))], note: item.note };
+      }
+      return { version: 1, folders, items };
+    }
+
+    function mergeBookmarkMetadata(base, local, remote) {
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const choose = (old, left, right, label) => {
+        if (same(left, right) || same(right, old)) return left;
+        if (same(left, old)) return right;
+        throw new Error(`同步冲突：${label}在两端都被修改；未覆盖数据。请先导出备份，再将两端该项改为一致后重试`);
+      };
+      const folders = base ? choose(base.folders, local.folders, remote.folders, "收藏夹或顺序") :
+        [...new Set([...local.folders, ...remote.folders])];
+      const items = {};
+      for (const key of new Set([...Object.keys(local.items), ...Object.keys(remote.items)])) {
+        const empty = { folder: "", tags: [], note: "" };
+        const old = base?.items[key] || empty, left = local.items[key] || empty, right = remote.items[key] || empty;
+        items[key] = {};
+        for (const field of ["folder", "tags", "note"]) {
+          items[key][field] = choose(old[field], left[field], right[field], `${key} 的${{ folder: "分类", tags: "标签", note: "备注" }[field]}`);
+        }
+        if (items[key].folder && !folders.includes(items[key].folder)) {
+          throw new Error("同步冲突：一端删除了收藏夹，另一端仍在使用；未覆盖数据，请先统一分类");
+        }
+      }
+      return normalizeBookmarkData({ version: 1, folders, items });
+    }
+
+    async function requestBookmarkGist(config, method, content) {
+      const { token, gistId } = config;
+      if (!/^[A-Za-z0-9_]{10,255}$/.test(token || "") ||
+          (gistId && !/^[a-f0-9]{20,40}$/.test(gistId))) throw new Error("请填写有效 Token 与 Gist ID（不是完整网址）");
+      if (content && new TextEncoder().encode(content).length > 900000) throw new Error("Gist 同步数据不能超过 900 KB，请精简备注；本地数据不受影响");
+      if (typeof GM_xmlhttpRequest !== "function") {
+        const result = await chrome.runtime.sendMessage({ type: "ld-bookmark-gist", token, gistId, method, content });
+        if (result?.error) throw new Error(result.error);
+        if (!result?.data) throw new Error("Gist 请求失败，请重载扩展");
+        return result.data;
+      }
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method, url: `https://api.github.com/gists${gistId ? `/${gistId}` : ""}`,
+          anonymous: true, timeout: 20000, redirect: "error",
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json",
+            "Content-Type": "application/json", "X-GitHub-Api-Version": "2022-11-28" },
+          data: method === "GET" ? undefined : JSON.stringify({
+            ...(method === "POST" ? { public: false, description: "SidePeek 收藏整理同步" } : {}),
+            files: { "sidepeek-bookmarks.json": { content } }
+          }),
+          onload(response) {
+            try {
+              if (response.status < 200 || response.status >= 300) throw new Error(`GitHub 请求失败（${response.status}），请检查 Token、权限和 Gist ID`);
+              if (response.responseText.length > 6 * 1024 * 1024) throw new Error("Gist 响应过大");
+              resolve(JSON.parse(response.responseText));
+            } catch (error) { reject(error); }
+          },
+          onerror: () => reject(new Error("Gist 网络请求失败；首次创建失败时请先在 GitHub 检查是否已创建")),
+          ontimeout: () => reject(new Error("Gist 请求超时；首次创建失败时请先在 GitHub 检查是否已创建"))
+        });
+      });
+    }
+
+    function readBookmarkGist(gist, userId) {
+      if (gist?.public !== false) throw new Error("仅支持非公开 Gist，请勿使用公开 Gist 存放备注");
+      const file = gist.files?.["sidepeek-bookmarks.json"];
+      if (!file || file.truncated || typeof file.content !== "string") throw new Error("Gist 缺少完整的 SidePeek 同步文件，未覆盖云端");
+      const backup = JSON.parse(file.content);
+      if (backup?.type !== "sidepeek-bookmark-metadata" || backup.origin !== location.origin || backup.userId !== userId || !backup.data) {
+        throw new Error("Gist 不属于当前 L 站账号，未覆盖数据");
+      }
+      return normalizeBookmarkData(backup.data);
+    }
+
+    async function syncBookmarkGist(input) {
+      const b = state.bookmarks, user = b.user, token = b.token;
+      const key = `ld-bookmarks-v1:${user.id}`, configKey = `ld-bookmarks-gist:${user.id}`;
+      await navigator.locks.request(key, async () => {
+        await assertBookmarkAccount(user, token);
+        const saved = await readBookmarkData(configKey);
+        if (!input.gistId && saved?.gistId) throw new Error("本机已有 Gist ID，请重新打开同步设置；如需新建，请先断开同步");
+        const config = { ...saved, token: input.token, gistId: input.gistId };
+        if (saved?.gistId !== config.gistId) { delete config.base; delete config.lastSync; }
+        const local = normalizeBookmarkData(await readBookmarkData(key));
+        const encode = data => JSON.stringify({ type: "sidepeek-bookmark-metadata", origin: location.origin, userId: user.id, data });
+        // 创建前先保存配置；远端成功后即保存 ID，避免重试重复创建。
+        await writeBookmarkData(configKey, config);
+        if (!config.gistId) {
+          const created = await requestBookmarkGist(config, "POST", encode(local));
+          if (!/^[a-f0-9]{20,40}$/.test(created?.id || "")) throw new Error("Gist 创建返回异常，请在 GitHub 检查后填写 ID");
+          config.gistId = created.id;
+          const form = b.dialog?.querySelector(".ld-bookmark-sync");
+          if (form) form.elements.gistId.value = created.id;
+          await writeBookmarkData(configKey, config);
+        }
+        const gist = await requestBookmarkGist(config, "GET");
+        const remote = readBookmarkGist(gist, user.id);
+        const merged = mergeBookmarkMetadata(config.base ? normalizeBookmarkData(config.base) : null, local, remote);
+        await assertBookmarkAccount(user, token);
+        // 保留上次同步前两端快照；网络失败不更改本地整理数据与合并基线。
+        config.recovery = { local, remote };
+        await writeBookmarkData(configKey, config);
+        if (JSON.stringify(merged) !== JSON.stringify(remote)) {
+          // ponytail: Gist 写入非原子；多设备高并发时需改用支持条件写入的后端。
+          const latest = await requestBookmarkGist(config, "GET");
+          if (JSON.stringify(readBookmarkGist(latest, user.id)) !== JSON.stringify(remote)) throw new Error("云端刚刚发生变化，请重新同步");
+          await requestBookmarkGist(config, "PATCH", encode(merged));
+        }
+        const verified = readBookmarkGist(await requestBookmarkGist(config, "GET"), user.id);
+        if (JSON.stringify(verified) !== JSON.stringify(merged)) throw new Error("同步期间云端被其他设备修改，请重新同步；本地数据已保留");
+        await assertBookmarkAccount(user, token);
+        await writeBookmarkData(key, merged);
+        b.data = merged;
+        config.base = merged;
+        config.lastSync = new Date().toISOString();
+        await writeBookmarkData(configKey, config);
+      });
+    }
+
+    async function openBookmarkSync() {
+      const b = state.bookmarks;
+      if (!await closeBookmarkEditor()) return;
+      b.dialog.querySelector(".ld-bookmark-more").open = false;
+      const user = b.user, token = b.token;
+      await runBookmarkAction(async () => {
+        await assertBookmarkAccount(user, token);
+        const config = await readBookmarkData(`ld-bookmarks-gist:${user.id}`);
+        const form = b.dialog.querySelector(".ld-bookmark-sync");
+        form.elements.token.value = "";
+        form.querySelector(".ld-bookmark-token-status").textContent = config?.token ? "已保存；无需重复填写" : "尚未配置 Token";
+        form.elements.gistId.value = config?.gistId || "";
+        form.querySelector(".ld-bookmark-sync-last").textContent = config?.lastSync ? `上次同步：${new Date(config.lastSync).toLocaleString()}` : "尚未同步";
+        b.dialog.querySelector(".ld-bookmark-browse").hidden = true;
+        form.hidden = false;
+      }, "配置仅存本机；每台设备配置后点击同步");
+    }
+
+    function normalizeBookmark(item) {
+      const id = Number(item?.id), targetId = Number(item?.bookmarkable_id), topicId = Number(item?.topic_id);
+      const postNumber = Number(item?.linked_post_number || 1);
+      if (![id, targetId, topicId, postNumber].every(n => Number.isSafeInteger(n) && n > 0) ||
+          !["Post", "Topic"].includes(item?.bookmarkable_type)) return null;
+      return {
+        id, key: `${item.bookmarkable_type}:${targetId}`, topicId, postNumber,
+        title: typeof item.title === "string" ? item.title : `主题 ${topicId}`,
+        excerpt: new DOMParser().parseFromString(typeof item.excerpt === "string" ? item.excerpt : "", "text/html").body.textContent || "",
+        name: typeof item.name === "string" ? item.name : "",
+        createdAt: Date.parse(item.created_at) || 0, unavailable: item.deleted === true || item.hidden === true,
+        url: `${location.origin}/t/topic/${topicId}/${postNumber}`
+      };
+    }
+
+    async function fetchBookmarkJson(path, signal) {
+      const response = await fetch(`${location.origin}${path}`, {
+        credentials: "include", cache: "no-store",
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
+        headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" }
+      });
+      if (!response.ok) throw new Error(`读取收藏失败（${response.status}），请确认已登录或稍后刷新`);
+      return response.json().catch(() => { throw new Error("收藏接口未返回有效数据，请先打开原站完成登录或验证"); });
+    }
+
+    async function fetchBookmarkUser(signal) {
+      const data = await fetchBookmarkJson("/session/current.json", signal);
+      const user = data?.current_user;
+      if (!Number.isSafeInteger(user?.id) || user.id <= 0 || typeof user.username !== "string" || !user.username) {
+        throw new Error("请先登录 L 站，再打开我的收藏");
+      }
+      return { id: user.id, username: user.username };
+    }
+
+    async function assertBookmarkAccount(user, token, localOnly = false, signal) {
+      try {
+        const current = localOnly ? state.bookmarks.user : await fetchBookmarkUser(signal);
+        signal?.throwIfAborted();
+        // 本机整理复用已经验证的账号与会话；原站和 Gist 操作仍按需联网复核。
+        if (localOnly && (!state.bookmarks.verified || !document.querySelector("#current-user"))) throw new Error("会话未验证");
+        if (current.id === user?.id && token && token === getCsrfToken()) return;
+      } catch {}
+      signal?.throwIfAborted();
+      state.bookmarks.verified = false;
+      state.bookmarks.complete = false;
+      throw new Error("无法确认当前账号，请关闭后重新打开我的收藏");
+    }
+
+    async function fetchAllBookmarks(user, signal, onPage) {
+      const items = [], seen = new Set();
+      let page = 0, skipped = 0;
+      while (!signal?.aborted) {
+        const path = `/u/${encodeURIComponent(user.username)}/bookmarks.json`;
+        const data = await fetchBookmarkJson(`${path}?page=${page}`, signal);
+        signal?.throwIfAborted();
+        const list = data?.user_bookmark_list || data;
+        if (!Array.isArray(list?.bookmarks)) throw new Error("收藏接口格式无法识别，请打开原站收藏页检查");
+        let added = 0;
+        for (const raw of list.bookmarks) {
+          if (!raw || !Number.isSafeInteger(raw.id) || raw.id <= 0) throw new Error("收藏数据格式异常");
+          if (seen.has(raw.id)) continue;
+          seen.add(raw.id);
+          added++;
+          const item = normalizeBookmark(raw);
+          if (item) items.push(item); else skipped++;
+        }
+        onPage?.(items);
+        if (!list.more_bookmarks_url) return { items, skipped };
+        const next = new URL(list.more_bookmarks_url, location.origin);
+        const nextPage = Number(next.searchParams.get("page"));
+        if (!added || next.origin !== location.origin || next.pathname !== path || !Number.isSafeInteger(nextPage) || nextPage <= page) {
+          throw new Error("收藏分页异常，已停止读取；请刷新重试");
+        }
+        page = nextPage;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      signal?.throwIfAborted();
+    }
+
+    async function updateBookmarkData(change) {
+      const b = state.bookmarks, user = b.user, token = b.token;
+      if (!user || !b.data) throw new Error("请先读取收藏");
+      const key = `ld-bookmarks-v1:${user.id}`;
+      // 同源标签页共用锁，写入前重读，避免分类和备注相互覆盖。
+      await navigator.locks.request(key, async () => {
+        await assertBookmarkAccount(user, token, true);
+        const data = normalizeBookmarkData(await readBookmarkData(key));
+        change(data);
+        const next = normalizeBookmarkData(data);
+        await assertBookmarkAccount(user, token, true);
+        await writeBookmarkData(key, next);
+        b.data = next;
+      });
+    }
+
+    function closeBookmarkPicker(restoreFocus = false) {
+      const b = state.bookmarks, button = b.pickerTarget?.button;
+      clearTimeout(b.pickerCloseTimer);
+      b.pickerPinned = false;
+      b.pickerController?.abort();
+      b.pickerController = null;
+      b.pickerTarget = null;
+      button?.setAttribute("aria-expanded", "false");
+      if (b.picker?.matches(":popover-open")) b.picker.hidePopover();
+      if (restoreFocus && button?.isConnected) button.focus({ preventScroll: true });
+    }
+
+    function scheduleBookmarkPickerClose() {
+      const b = state.bookmarks;
+      clearTimeout(b.pickerCloseTimer);
+      b.pickerCloseTimer = setTimeout(() => {
+        if (!b.pickerPinned && !b.busy && !b.picker?.matches(":hover") && !b.pickerTarget?.button.matches(":hover") &&
+            !b.picker?.contains(document.activeElement) && document.activeElement !== b.pickerTarget?.button) closeBookmarkPicker();
+      }, 180);
+    }
+
+    function positionBookmarkPicker() {
+      const b = state.bookmarks;
+      if (!b.pickerTarget?.button.isConnected) return closeBookmarkPicker();
+      const rect = b.pickerTarget.button.getBoundingClientRect(), popup = b.picker.getBoundingClientRect();
+      b.picker.style.left = `${Math.max(10, Math.min(rect.left, window.innerWidth - popup.width - 10))}px`;
+      b.picker.style.top = `${Math.max(10, Math.min(rect.bottom + 6, window.innerHeight - popup.height - 10))}px`;
+    }
+
+    async function openBookmarkPicker(button, post, token, hover = false) {
+      if (state.settings.enhancedBookmarks === "off") return;
+      const b = state.bookmarks;
+      if (b.busy || button.disabled) return;
+      if (b.dialog.open) {
+        if (!b.compact) return;
+        closeBookmarkPanel(false);
+      }
+      clearTimeout(b.pickerCloseTimer);
+      if (b.pickerTarget?.button === button && b.picker.matches(":popover-open")) {
+        if (!hover) {
+          b.pickerPinned = true;
+          (b.picker.querySelector('[aria-pressed="true"]') || b.picker.querySelector("[data-bookmark-pick-folder]"))?.focus({ preventScroll: true });
+        }
+        return;
+      }
+      closeBookmarkPicker();
+      if (!b.picker) {
+        const picker = document.createElement("div");
+        picker.id = "ld-bookmark-picker";
+        picker.setAttribute("popover", "auto");
+        picker.setAttribute("role", "dialog");
+        picker.setAttribute("aria-labelledby", "ld-bookmark-picker-title");
+        picker.innerHTML = `<strong id="ld-bookmark-picker-title">收藏到…</strong>
+          <p class="ld-bookmark-picker-status" role="status"></p>
+          <div class="ld-bookmark-picker-folders"></div>
+          <form><input name="folder" maxlength="60" required autocomplete="off" aria-label="新收藏夹名称" placeholder="新收藏夹名称…"><button type="submit">新建并收藏</button></form>
+          <button type="button" class="ld-bookmark-picker-remove" hidden>取消收藏</button>`;
+        picker.addEventListener("click", event => {
+          const target = event.target instanceof Element ? event.target.closest("[data-bookmark-pick-folder]") : null;
+          if (target) saveBookmarkToFolder(target.dataset.bookmarkPickFolder);
+        });
+        picker.querySelector("form").addEventListener("submit", event => {
+          event.preventDefault();
+          const folder = event.currentTarget.elements.folder.value.trim();
+          if (folder) saveBookmarkToFolder(folder, true);
+        });
+        picker.addEventListener("toggle", () => {
+          if (!picker.matches(":popover-open")) closeBookmarkPicker();
+        });
+        picker.addEventListener("pointerenter", () => clearTimeout(b.pickerCloseTimer));
+        picker.addEventListener("pointerleave", scheduleBookmarkPickerClose);
+        picker.addEventListener("focusout", scheduleBookmarkPickerClose);
+        picker.querySelector(".ld-bookmark-picker-remove").addEventListener("click", () => {
+          const target = b.pickerTarget;
+          if (!target || b.busy || !target.post.bookmarked) return;
+          closeBookmarkPicker(true);
+          handlePostBookmark(target.button, target.post, target.token);
+        });
+        b.picker = picker;
+        document.body.append(picker);
+      }
+      const controller = new AbortController();
+      b.pickerController = controller;
+      b.pickerTarget = { button, post, token };
+      b.pickerPinned = !hover;
+      const picker = b.picker, list = picker.querySelector(".ld-bookmark-picker-folders");
+      const status = picker.querySelector(".ld-bookmark-picker-status");
+      list.replaceChildren();
+      picker.querySelector("form").hidden = true;
+      picker.querySelector(".ld-bookmark-picker-remove").hidden = true;
+      picker.querySelector("form").reset();
+      picker.querySelector("strong").textContent = post.bookmarked ? "移动到收藏夹" : "收藏到…";
+      status.textContent = "正在读取收藏夹…";
+      picker.showPopover();
+      button.setAttribute("aria-expanded", "true");
+      positionBookmarkPicker();
+      try {
+        const user = b.verified && b.token === token && token === getCsrfToken() && document.querySelector("#current-user")
+          ? b.user : await fetchBookmarkUser(controller.signal);
+        const data = normalizeBookmarkData(await readBookmarkData(`ld-bookmarks-v1:${user.id}`));
+        if (controller.signal.aborted) return;
+        if (!token || token !== getCsrfToken()) throw new Error("登录状态已变化，请刷新主题后重试");
+        if (b.user?.id !== user.id || b.token !== token) {
+          b.items = [];
+          b.complete = false;
+          b.folder = "*";
+          b.dialog.querySelector(".ld-bookmark-search").value = "";
+        }
+        b.user = user;
+        b.token = token;
+        b.data = data;
+        b.verified = true;
+        const selected = data.items[`Post:${post.id}`]?.folder || "";
+        for (const folder of ["", ...data.folders]) {
+          const choice = document.createElement("button");
+          choice.type = "button";
+          choice.dataset.bookmarkPickFolder = folder;
+          choice.textContent = folder || "未分类";
+          choice.setAttribute("aria-pressed", String(post.bookmarked && selected === folder));
+          list.append(choice);
+        }
+        status.textContent = post.bookmarked ? `当前收藏夹：${selected || "未分类"}` : "选择收藏夹即可收藏。";
+        picker.querySelector("form").hidden = false;
+        picker.querySelector(".ld-bookmark-picker-remove").hidden = !post.bookmarked;
+        picker.querySelector('button[type="submit"]').textContent = post.bookmarked ? "新建并移动" : "新建并收藏";
+        for (const control of picker.querySelectorAll("button, input")) control.disabled = false;
+        positionBookmarkPicker();
+        const selectedChoice = list.querySelector('[aria-pressed="true"]') || list.querySelector("button");
+        selectedChoice?.scrollIntoView({ block: "nearest" });
+        if (b.pickerPinned) selectedChoice?.focus({ preventScroll: true });
+      } catch (error) {
+        if (!controller.signal.aborted) status.textContent = error.message || "读取失败，请关闭后重试";
+      }
+    }
+
+    async function saveBookmarkToFolder(folder, create = false) {
+      const b = state.bookmarks, target = b.pickerTarget;
+      if (!target || b.busy) return;
+      b.busy = true;
+      const wasBookmarked = target.post.bookmarked === true;
+      for (const control of b.picker.querySelectorAll("button, input")) control.disabled = true;
+      const status = b.picker.querySelector(".ld-bookmark-picker-status");
+      status.textContent = "正在保存…";
+      try {
+        await assertBookmarkAccount(b.user, target.token, true);
+        if (!wasBookmarked) {
+          const result = await performCreateBookmark(target.post.id);
+          target.post.bookmarked = true;
+          target.post.bookmark_id = result?.id || null;
+          syncPostBookmarkState(`Post:${target.post.id}`, true, target.post.bookmark_id);
+          invalidateBookmarkCache();
+        }
+        await updateBookmarkData(data => {
+          if (create && !data.folders.includes(folder)) data.folders.push(folder);
+          if (folder && !data.folders.includes(folder)) throw new Error("收藏夹已被删除，请重新选择");
+          const key = `Post:${target.post.id}`;
+          data.items[key] = { ...(data.items[key] || { tags: [], note: "" }), folder };
+        });
+        closeBookmarkPicker(true);
+        showToast(`已保存到「${folder || "未分类"}」`, "success");
+      } catch (error) {
+        const message = !wasBookmarked && target.post.bookmarked ? `已收藏到 L 站，但分类保存失败：${error.message}` : `保存失败：${error.message}`;
+        status.textContent = message;
+        showToast(message, "error");
+      } finally {
+        b.busy = false;
+        scheduleBookmarkRefresh();
+        for (const control of b.picker.querySelectorAll("button, input")) control.disabled = false;
+      }
+    }
+
+    function syncBookmarkFeature() {
+      const b = state.bookmarks, enabled = state.settings.enhancedBookmarks !== "off";
+      if (b.trigger) b.trigger.hidden = !enabled;
+      if (!enabled) {
+        closeBookmarkPicker();
+        b.confirmation?.close();
+        closeBookmarkPanel(false);
+        b.returnToList = false;
+        clearTimeout(b.refreshTimer);
+        b.refreshController?.abort();
+      } else scheduleBookmarkRefresh();
+      const header = state.root?.querySelector(".ld-topic-bookmark");
+      if (header) header.hidden = !enabled || !header.querySelector("button");
+      for (const button of state.root?.querySelectorAll("[data-bookmark-post-id]") || []) {
+        renderPostBookmarkButton(button, button.getAttribute("aria-pressed") === "true");
+      }
+    }
+
+    function invalidateBookmarkCache() {
+      const b = state.bookmarks;
+      b.cacheAt = 0;
+      b.cacheVersion++;
+      b.refreshController?.abort();
+    }
+
+    function scheduleBookmarkRefresh(delay) {
+      const b = state.bookmarks;
+      clearTimeout(b.refreshTimer);
+      if (!b.user || state.settings.enhancedBookmarks === "off" || state.previewPageHidden) return;
+      b.refreshTimer = setTimeout(refreshBookmarkCache, delay ?? Math.max(0, b.cacheAt + 3600000 - Date.now()));
+    }
+
+    async function refreshBookmarkCache() {
+      const b = state.bookmarks;
+      if (!b.user || state.settings.enhancedBookmarks === "off" || state.previewPageHidden) return;
+      if (document.hidden || b.busy || b.loading || b.refreshController || b.confirmation || b.pickerTarget ||
+          !b.dialog.querySelector(".ld-bookmark-editor").hidden || !b.dialog.querySelector(".ld-bookmark-sync").hidden ||
+          b.dialog.querySelector(".ld-bookmark-folder-rename")) {
+        scheduleBookmarkRefresh(60000);
+        return;
+      }
+      const controller = new AbortController(), user = b.user, token = b.token, version = b.cacheVersion;
+      b.refreshController = controller;
+      try {
+        await assertBookmarkAccount(user, token, false, controller.signal);
+        const result = await fetchAllBookmarks(user, controller.signal);
+        await assertBookmarkAccount(user, token, false, controller.signal);
+        if (controller.signal.aborted || b.user?.id !== user.id || b.token !== token || b.cacheVersion !== version) return;
+        b.items = result.items;
+        b.skipped = result.skipped;
+        b.complete = b.verified = true;
+        b.cacheAt = Date.now();
+        if (b.dialog.open && !b.dialog.querySelector(".ld-bookmark-folder-rename")) renderBookmarkList();
+      } catch (error) {
+        if (!controller.signal.aborted && b.dialog.open && !b.dialog.querySelector(".ld-bookmark-folder-rename")) {
+          b.message = `自动刷新失败：${error.message}；可点击刷新重试`;
+          renderBookmarkList();
+        }
+      } finally {
+        if (b.refreshController === controller) b.refreshController = null;
+        scheduleBookmarkRefresh(b.cacheAt && Date.now() - b.cacheAt < 3600000 ? undefined : 60000);
+      }
+    }
+
+    function confirmBookmarkAction(message, actionLabel = "确定") {
+      const b = state.bookmarks;
+      if (b.confirmation) return Promise.resolve(false);
+      const dialog = document.createElement("dialog");
+      dialog.id = "ld-bookmark-confirm";
+      dialog.setAttribute("aria-labelledby", "ld-bookmark-confirm-title");
+      dialog.setAttribute("aria-describedby", "ld-bookmark-confirm-message");
+      dialog.innerHTML = '<h3 id="ld-bookmark-confirm-title">请确认操作</h3><p id="ld-bookmark-confirm-message"></p><form method="dialog"><button value="cancel" autofocus>取消</button><button value="confirm" class="ld-bookmark-primary"></button></form>';
+      dialog.querySelector("p").textContent = message;
+      dialog.querySelector('[value="confirm"]').textContent = actionLabel;
+      b.confirmation = dialog;
+      document.body.append(dialog);
+      return new Promise(resolve => {
+        dialog.addEventListener("close", () => {
+          b.confirmation = null;
+          dialog.remove();
+          resolve(dialog.returnValue === "confirm");
+        }, { once: true });
+        dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
+        dialog.showModal();
+      });
+    }
+
+    function buildBookmarkPanel() {
+      const b = state.bookmarks;
+      const trigger = document.createElement("button");
+      trigger.id = "ld-bookmarks-trigger";
+      trigger.type = "button";
+      trigger.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2 2 9.3l6.9-1z"/></svg><span>收藏</span>';
+      trigger.setAttribute("aria-label", "我的收藏");
+      trigger.setAttribute("aria-haspopup", "dialog");
+      trigger.setAttribute("aria-controls", "ld-bookmarks");
+      trigger.setAttribute("aria-expanded", "false");
+      trigger.title = "悬停查看收藏，点击固定展开；按 Esc 收起";
+      trigger.addEventListener("click", () => {
+        if (b.dialog.open && b.compact && b.pinned) return closeBookmarkPanel();
+        b.pinned = true;
+        if (!b.dialog.open) openBookmarkPanel("", false, true);
+      });
+      trigger.addEventListener("pointerenter", event => {
+        clearTimeout(b.closeTimer);
+        if (event.pointerType === "mouse" && !b.dialog.open) {
+          b.pinned = false;
+          openBookmarkPanel("", false, true);
+        }
+      });
+      trigger.addEventListener("pointerleave", scheduleBookmarkPanelClose);
+      const dialog = document.createElement("dialog");
+      dialog.id = "ld-bookmarks";
+      dialog.setAttribute("aria-labelledby", "ld-bookmarks-title");
+      dialog.innerHTML = `
+        <header class="ld-bookmark-head">
+          <div class="ld-bookmark-heading"><span class="ld-bookmark-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2L5.8 21 7 14.2 2 9.3l6.9-1z"/></svg></span>
+            <div><h2 id="ld-bookmarks-title">我的收藏 <span class="ld-bookmark-total"></span></h2><p>好内容，随时回来看看</p></div></div>
+          <div class="ld-bookmark-head-actions">
+            <button class="ld-bookmark-manage" type="button" data-bookmark-action="manage">管理面板</button>
+            <button type="button" data-bookmark-action="refresh">刷新</button>
+            <details class="ld-bookmark-more"><summary aria-label="更多收藏操作">更多</summary>
+              <div class="ld-bookmark-menu">
+                <button type="button" data-bookmark-action="sync-settings">Gist 同步…</button>
+                <div class="ld-bookmark-backup"><strong>备份与恢复</strong><p>备份本机的分类、标签和备注，不含帖子正文。</p>
+                  <button type="button" data-bookmark-action="export">导出备份</button><button type="button" data-bookmark-action="import">导入备份…</button>
+                  <input type="file" class="ld-bookmark-import" accept="application/json,.json" aria-label="选择收藏整理备份" hidden>
+                </div>
+              </div>
+            </details>
+            <button class="ld-bookmark-close" type="button" data-bookmark-action="close" aria-label="关闭我的收藏"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+          </div>
+        </header>
+        <div class="ld-bookmark-workspace">
+          <aside class="ld-bookmark-sidebar" aria-label="收藏夹">
+            <div class="ld-bookmark-sidebar-title">收藏夹 <button type="button" data-bookmark-action="new-folder" aria-label="新建收藏夹" aria-expanded="false">＋ 新建</button></div>
+            <form class="ld-bookmark-folder-form" hidden>
+              <input name="folder" maxlength="60" required autocomplete="off" aria-label="新收藏夹名称" placeholder="例如：技术笔记…">
+              <div><button class="ld-bookmark-primary" type="submit">创建</button><button type="button" data-bookmark-action="cancel-folder">取消</button></div>
+            </form>
+            <nav class="ld-bookmark-folders" aria-label="筛选收藏夹"></nav>
+            <p class="ld-bookmark-local-note">分类可拖拽排序<br>跨设备请配置 Gist 同步</p>
+          </aside>
+          <main class="ld-bookmark-main">
+            <form class="ld-bookmark-sync" hidden>
+              <h3>Gist 同步</h3>
+              <fieldset>
+                <div class="ld-bookmark-token">
+                  <div class="ld-bookmark-sync-label"><label for="ld-bookmark-sync-token">GitHub Token</label><button type="button" class="ld-bookmark-help-button" aria-label="如何申请 GitHub Token" aria-controls="ld-bookmark-token-help" aria-expanded="false">?</button></div>
+                  <div id="ld-bookmark-token-help" class="ld-bookmark-sync-tip" popover="auto" role="note">
+                    <strong>申请 GitHub Token</strong><p>打开 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer">GitHub Token 设置</a>，选择 Generate new token → Generate new token (classic)。设置有效期，仅勾选 gist 权限，生成后复制到下方输入框。</p>
+                    <p>Token 仅存本机，不进入备份；留空沿用已保存值。非公开 Gist 不加密，请勿同步敏感备注。</p>
+                  </div>
+                  <input id="ld-bookmark-sync-token" name="token" type="password" autocomplete="new-password" maxlength="255" placeholder="填写 Token；已保存时可留空">
+                  <small class="ld-bookmark-token-status"></small>
+                </div>
+                <div class="ld-bookmark-token">
+                  <div class="ld-bookmark-sync-label"><label for="ld-bookmark-sync-id">Gist ID</label><button type="button" class="ld-bookmark-help-button" aria-label="如何获取和使用 Gist ID" aria-controls="ld-bookmark-id-help" aria-expanded="false">?</button></div>
+                  <div id="ld-bookmark-id-help" class="ld-bookmark-sync-tip" popover="auto" role="note">
+                    <strong>首次留空，其他设备填相同 ID</strong><p>首次点击“保存并同步”会确认创建非公开 Gist，并自动填入 ID，无需手动新建。</p>
+                    <p>也可在 <a href="https://gist.github.com/" target="_blank" rel="noopener noreferrer">我的 Gist</a> 中找到含 sidepeek-bookmarks.json 的同步记录，网址最后一段就是 ID（不要填写整个网址）。</p>
+                    <p>其他设备登录同一 L 站账号，填写相同 ID 和有权限的 Token，再点击“保存并同步”合并分类、标签和备注。避免多台设备同时同步。</p>
+                  </div>
+                  <input id="ld-bookmark-sync-id" name="gistId" autocomplete="off" maxlength="40" placeholder="首次留空，其他设备填相同 ID">
+                </div>
+                <p class="ld-bookmark-sync-last"></p>
+                <div class="ld-bookmark-edit-actions"><button type="submit" class="ld-bookmark-primary">保存并同步</button><button type="button" data-bookmark-action="disconnect-sync">断开同步</button><button type="button" data-bookmark-action="export-recovery">导出同步前备份</button></div>
+              </fieldset>
+            </form>
+            <div class="ld-bookmark-browse">
+              <fieldset class="ld-bookmark-tools" disabled>
+                <div class="ld-bookmark-filters">
+                  <label class="ld-bookmark-search-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+                    <input type="search" name="bookmark-search" class="ld-bookmark-search" autocomplete="off" aria-label="搜索全部收藏" placeholder="搜索收藏、标签或备注…"><button type="button" class="ld-bookmark-search-clear" data-bookmark-action="clear-search" aria-label="清空收藏搜索" hidden>×</button></label>
+                  <select name="bookmark-sort" class="ld-bookmark-sort" aria-label="收藏排序"><option value="newest">最新收藏</option><option value="oldest">最早收藏</option><option value="title">标题排序</option></select>
+                </div>
+              </fieldset>
+              <div class="ld-bookmark-list" role="region" aria-label="收藏列表" tabindex="-1"></div>
+            </div>
+            <form class="ld-bookmark-editor" hidden>
+              <button class="ld-bookmark-back" type="button" data-bookmark-action="cancel-edit">← 返回收藏</button>
+              <h3>分类与备注</h3><p class="ld-bookmark-edit-title"></p>
+              <fieldset>
+                <label>放入收藏夹 <select name="folder" aria-label="所属收藏夹"></select></label>
+                <label>标签 <span class="ld-bookmark-field-hint">选填，用逗号分开</span><input name="tags" maxlength="820" autocomplete="off" placeholder="例如：教程，稍后阅读…"></label>
+                <label>备注 <span class="ld-bookmark-field-hint">选填，记下为什么收藏它</span><textarea name="note" maxlength="2000" rows="4" placeholder="写下你的想法…"></textarea></label>
+                <div class="ld-bookmark-edit-actions"><button class="ld-bookmark-primary" type="submit">保存修改</button><button type="button" data-bookmark-action="cancel-edit">取消</button>
+                  <button class="ld-bookmark-remove" type="button" data-bookmark-action="remove">取消收藏</button></div>
+              </fieldset>
+            </form>
+          </main>
+        </div>
+        <footer class="ld-bookmark-status" role="status" aria-live="polite"></footer>`;
+      b.dialog = dialog;
+      b.trigger = trigger;
+      document.body.append(trigger, dialog);
+      for (const button of dialog.querySelectorAll(".ld-bookmark-help-button")) {
+        const tip = document.getElementById(button.getAttribute("aria-controls"));
+        let closeTimer;
+        const show = () => {
+          clearTimeout(closeTimer);
+          tip.showPopover();
+          const rect = button.getBoundingClientRect();
+          tip.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - tip.offsetWidth - 8))}px`;
+          tip.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - tip.offsetHeight - 8))}px`;
+        };
+        const scheduleClose = () => {
+          clearTimeout(closeTimer);
+          closeTimer = setTimeout(() => {
+            if (!button.matches(":hover, :focus") && !tip.matches(":hover, :focus-within")) tip.hidePopover();
+          }, 180);
+        };
+        button.addEventListener("pointerenter", event => {
+          if (event.pointerType === "mouse") {
+            clearTimeout(closeTimer);
+            closeTimer = setTimeout(show, 180);
+          }
+        });
+        button.addEventListener("click", show);
+        for (const node of [button, tip]) {
+          node.addEventListener("pointerleave", scheduleClose);
+          node.addEventListener("focusout", scheduleClose);
+        }
+        tip.addEventListener("toggle", () => button.setAttribute("aria-expanded", String(tip.matches(":popover-open"))));
+      }
+      if (state.trustPanel) new ResizeObserver(positionBookmarkPanel).observe(state.trustPanel);
+      window.addEventListener("resize", positionBookmarkPanel);
+      positionBookmarkPanel();
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleBookmarkRefresh(); });
+      dialog.addEventListener("pointerenter", () => clearTimeout(b.closeTimer));
+      dialog.addEventListener("pointerleave", scheduleBookmarkPanelClose);
+      dialog.addEventListener("focusout", scheduleBookmarkPanelClose);
+      trigger.addEventListener("focusout", scheduleBookmarkPanelClose);
+      dialog.addEventListener("close", () => {
+        if (dialog.open) return;
+        clearBookmarkSyncInput();
+        b.controller?.abort();
+        b.controller = null;
+        b.loading = false;
+        trigger.setAttribute("aria-expanded", "false");
+        if (!b.returnToList && b.restoreFocus) trigger.focus({ preventScroll: true });
+      });
+      dialog.addEventListener("cancel", dismissBookmarkPanel);
+      dialog.addEventListener("pointerdown", event => { b.backdropPointerDown = isBookmarkBackdrop(event); });
+      dialog.addEventListener("click", handleBookmarkPanelClick);
+      dialog.querySelector(".ld-bookmark-search").addEventListener("input", renderBookmarkList);
+      const folders = dialog.querySelector(".ld-bookmark-folders");
+      let draggedFolder = "";
+      const clearDropHint = () => {
+        for (const row of folders.querySelectorAll("[data-drop-position]")) delete row.dataset.dropPosition;
+      };
+      const getDropTarget = event => {
+        const row = event.target.closest("[data-folder-row]");
+        if (!draggedFolder || !row || row.dataset.folderRow === draggedFolder) return null;
+        const rect = row.getBoundingClientRect();
+        const after = window.innerWidth <= 720 ? event.clientX > rect.left + rect.width / 2 : event.clientY > rect.top + rect.height / 2;
+        return { row, after };
+      };
+      folders.addEventListener("dragstart", event => {
+        const row = event.target.closest("[data-folder-row]");
+        if (!row || !row.draggable || b.busy || b.loading || b.compact) return event.preventDefault();
+        if (!dialog.querySelector(".ld-bookmark-editor").hidden || !dialog.querySelector(".ld-bookmark-sync").hidden) {
+          event.preventDefault();
+          closeBookmarkEditor();
+          return;
+        }
+        clearDropHint();
+        draggedFolder = row.dataset.folderRow;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", draggedFolder);
+      });
+      folders.addEventListener("dragover", event => {
+        clearDropHint();
+        const target = getDropTarget(event);
+        if (!target) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        target.row.dataset.dropPosition = target.after ? "after" : "before";
+      });
+      folders.addEventListener("dragleave", event => {
+        if (!folders.contains(event.relatedTarget)) clearDropHint();
+      });
+      folders.addEventListener("drop", event => {
+        const target = getDropTarget(event);
+        clearDropHint();
+        if (!target) return;
+        event.preventDefault();
+        moveBookmarkFolder(draggedFolder, target.row.dataset.folderRow, target.after);
+        draggedFolder = "";
+      });
+      folders.addEventListener("dragend", () => { draggedFolder = ""; clearDropHint(); });
+      dialog.querySelector(".ld-bookmark-sort").addEventListener("change", renderBookmarkList);
+      dialog.querySelector(".ld-bookmark-sync").addEventListener("submit", async event => {
+        event.preventDefault();
+        const fields = event.currentTarget.elements;
+        const token = fields.token.value.trim(), gistId = fields.gistId.value.trim();
+        if (!gistId && !await confirmBookmarkAction("将创建非公开 Gist，上传当前账号的分类、标签和备注（不加密）。继续？", "创建并同步")) return;
+        runBookmarkAction(async () => {
+          const saved = await readBookmarkData(`ld-bookmarks-gist:${b.user.id}`);
+          const config = { token: token || saved?.token || "", gistId };
+          if (!/^[A-Za-z0-9_]{10,255}$/.test(config.token) || (gistId && !/^[a-f0-9]{20,40}$/.test(gistId))) throw new Error("请填写有效 Token 和 Gist ID（不是网址）");
+          await syncBookmarkGist(config);
+          fields.token.value = "";
+          b.dialog.querySelector(".ld-bookmark-token-status").textContent = "已保存；无需重复填写";
+          b.dialog.querySelector(".ld-bookmark-sync-last").textContent = `上次同步：${new Date().toLocaleString()}`;
+        }, "已同步分类、标签和备注；其他设备请点击同步获取更新");
+      });
+      dialog.querySelector(".ld-bookmark-folder-form").addEventListener("submit", event => {
+        event.preventDefault();
+        const input = event.currentTarget.elements.folder;
+        const folder = input.value.trim();
+        if (!folder) return;
+        runBookmarkAction(async () => {
+          await updateBookmarkData(data => { if (!data.folders.includes(folder)) data.folders.push(folder); });
+          input.value = "";
+          setBookmarkFolderFormOpen(false);
+          syncBookmarkFolders();
+          if (dialog.querySelector(".ld-bookmark-editor").hidden) b.folder = `folder:${folder}`;
+          else dialog.querySelector(".ld-bookmark-editor select").value = folder;
+        }, "收藏夹已创建");
+      });
+      dialog.querySelector(".ld-bookmark-editor").addEventListener("submit", event => {
+        event.preventDefault();
+        const fields = event.currentTarget.elements;
+        const key = b.editingKey;
+        const item = { folder: fields.folder.value, tags: [...new Set(fields.tags.value.split(/[,，]/).map(s => s.trim()).filter(Boolean))], note: fields.note.value.trim() };
+        runBookmarkAction(async () => {
+          await updateBookmarkData(data => { data.items[key] = item; });
+          closeBookmarkEditor(false);
+        }, "已保存分类与备注");
+      });
+      dialog.querySelector(".ld-bookmark-import").addEventListener("change", event => {
+        const input = event.currentTarget, file = input.files?.[0];
+        if (!file) return;
+        runBookmarkAction(async () => {
+          try {
+            if (file.size > 5 * 1024 * 1024) throw new Error("备份文件不能超过 5 MB");
+            const backup = JSON.parse(await file.text());
+            await importBookmarkBackup(backup);
+            syncBookmarkFolders();
+          } finally { input.value = ""; }
+        }, "导入完成，已有的分类和备注已保留");
+      });
+    }
+
+    function positionBookmarkPanel() {
+      const b = state.bookmarks;
+      if (!b.trigger) return;
+      const grade = state.trustPanel;
+      const top = grade && !grade.hidden ? grade.getBoundingClientRect().bottom + 8 : 100;
+      b.trigger.style.top = `${Math.min(top, window.innerHeight - 48)}px`;
+      const rect = b.trigger.getBoundingClientRect();
+      const panelTop = window.innerWidth > 720 ? rect.top : rect.bottom + 4;
+      b.dialog.style.setProperty("--ld-bookmark-panel-top", `${Math.max(12, Math.min(panelTop, window.innerHeight - Math.min(500, window.innerHeight - 140) - 12))}px`);
+      b.dialog.style.setProperty("--ld-bookmark-panel-left", `${window.innerWidth > 720 ? rect.right + 8 : 10}px`);
+    }
+
+    function scheduleBookmarkPanelClose() {
+      const b = state.bookmarks;
+      clearTimeout(b.closeTimer);
+      b.closeTimer = setTimeout(() => {
+        if (b.compact && !b.pinned && !b.busy && !b.dialog.matches(":hover") && !b.trigger.matches(":hover") &&
+            !b.dialog.contains(document.activeElement) && document.activeElement !== b.trigger) closeBookmarkPanel(false);
+      }, 180);
+    }
+
+    function closeBookmarkPanel(restoreFocus = true) {
+      const b = state.bookmarks;
+      b.confirmation?.close();
+      clearTimeout(b.closeTimer);
+      b.restoreFocus = restoreFocus;
+      b.pinned = false;
+      b.backdropPointerDown = false;
+      b.controller?.abort();
+      b.controller = null;
+      b.loading = false;
+      clearBookmarkSyncInput();
+      b.dialog?.close();
+    }
+
+    function clearBookmarkSyncInput() {
+      const dialog = state.bookmarks.dialog;
+      if (!dialog) return;
+      dialog.querySelector(".ld-bookmark-sync").elements.token.value = "";
+      for (const tip of dialog.querySelectorAll(".ld-bookmark-sync-tip:popover-open")) tip.hidePopover();
+    }
+
+    async function dismissBookmarkPanel(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const b = state.bookmarks;
+      if (b.busy) return;
+      const more = b.dialog.querySelector(".ld-bookmark-more");
+      if (more.open) {
+        more.open = false;
+        more.querySelector("summary").focus();
+      } else if (b.dialog.querySelector(".ld-bookmark-folder-more[open]")) {
+        const folderMore = b.dialog.querySelector(".ld-bookmark-folder-more[open]");
+        folderMore.open = false;
+        folderMore.querySelector("summary").focus();
+      } else if (!b.dialog.querySelector(".ld-bookmark-editor").hidden || !b.dialog.querySelector(".ld-bookmark-sync").hidden) closeBookmarkEditor();
+      else closeBookmarkPanel();
+    }
+
+    async function openBookmarkPanel(editKey = "", refresh = false, compact = false) {
+      const b = state.bookmarks, dialog = b.dialog;
+      if (b.busy || state.settings.enhancedBookmarks === "off") return;
+      b.refreshController?.abort();
+      closeBookmarkPicker();
+      clearTimeout(b.closeTimer);
+      if (dialog.open && b.compact !== compact) dialog.close();
+      b.compact = compact;
+      b.restoreFocus = true;
+      dialog.classList.toggle("ld-bookmark-compact", compact);
+      if (!dialog.open) {
+        const previousFocus = document.activeElement;
+        if (compact) {
+          dialog.show();
+          if (previousFocus === document.body) document.activeElement?.blur();
+          else previousFocus?.focus({ preventScroll: true });
+        } else dialog.showModal();
+      }
+      b.trigger.setAttribute("aria-expanded", "true");
+      positionBookmarkPanel();
+      dialog.querySelector(".ld-bookmark-more").open = false;
+      b.controller?.abort();
+      const controller = new AbortController();
+      b.controller = controller;
+      const token = getCsrfToken();
+      const useCache = !refresh && b.complete && b.verified && b.user && b.data && token && b.token === token &&
+        document.querySelector("#current-user") && Date.now() - b.cacheAt < 3600000;
+      b.loading = !useCache;
+      b.verified = Boolean(useCache);
+      b.message = useCache ? "" : "正在确认账号…";
+      const scrollTop = dialog.querySelector(".ld-bookmark-list").scrollTop;
+      if (!useCache) dialog.querySelector(".ld-bookmark-list").replaceChildren();
+      dialog.querySelector(".ld-bookmark-editor").hidden = true;
+      dialog.querySelector(".ld-bookmark-sync").hidden = true;
+      clearBookmarkSyncInput();
+      dialog.querySelector(".ld-bookmark-browse").hidden = false;
+      b.editingKey = "";
+      renderBookmarkStatus();
+      try {
+        const user = useCache ? b.user : await fetchBookmarkUser(controller.signal);
+        if (controller.signal.aborted) return;
+        if (token !== getCsrfToken()) throw new Error("登录状态已变化，请重新打开收藏");
+        const changed = b.user?.id !== user.id || b.token !== token;
+        if (changed) {
+          b.items = [];
+          b.complete = false;
+          b.data = null;
+          dialog.querySelector(".ld-bookmark-search").value = "";
+          b.folder = "*";
+        }
+        const saved = normalizeBookmarkData(await readBookmarkData(`ld-bookmarks-v1:${user.id}`));
+        if (controller.signal.aborted) return;
+        b.user = user;
+        b.token = token;
+        b.data = saved;
+        b.verified = true;
+        syncBookmarkFolders();
+        if (refresh || !b.complete || Date.now() - b.cacheAt >= 3600000) {
+          b.complete = false;
+          b.items = [];
+          const result = await fetchAllBookmarks(user, controller.signal, items => {
+            if (token !== getCsrfToken()) throw new Error("登录状态已变化，请重新打开收藏");
+            b.items = items;
+            b.message = `已读取 ${b.items.length} 条，正在加载全部收藏…`;
+            renderBookmarkStatus();
+          });
+          if (controller.signal.aborted) return;
+          await assertBookmarkAccount(user, token);
+          if (controller.signal.aborted) return;
+          b.complete = true;
+          b.skipped = result.skipped;
+          b.cacheAt = Date.now();
+        }
+        b.message = "";
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        b.complete = false;
+        b.verified = false;
+        b.message = error.message || "读取失败，请刷新重试";
+      } finally {
+        if (b.controller === controller) {
+          b.loading = false;
+          b.controller = null;
+          scheduleBookmarkRefresh();
+          renderBookmarkList();
+          dialog.querySelector(".ld-bookmark-list").scrollTop = refresh ? 0 : scrollTop;
+          if (b.complete && dialog.open && !compact) {
+            if (editKey) editBookmark(editKey);
+            else if (window.innerWidth > 720) dialog.querySelector(".ld-bookmark-search").focus();
+            else dialog.querySelector('[data-bookmark-action="close"]').focus();
+          }
+        }
+      }
+    }
+
+    function syncBookmarkFolders() {
+      const b = state.bookmarks;
+      const folders = b.verified ? b.data?.folders || [] : [];
+      const select = b.dialog.querySelector(".ld-bookmark-editor select");
+      const previous = select.value;
+      select.replaceChildren();
+      for (const [value, text] of [["", "未分类"], ...folders.map(name => [name, name])]) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        select.append(option);
+      }
+      if ([...select.options].some(option => option.value === previous)) select.value = previous;
+      if (b.folder.startsWith("folder:") && !folders.includes(b.folder.slice(7))) b.folder = "*";
+      const nav = b.dialog.querySelector(".ld-bookmark-folders");
+      nav.replaceChildren();
+      for (const [value, name] of [["*", "全部收藏"], ["", "未分类"], ...folders.map(name => [`folder:${name}`, name])]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.bookmarkFolder = value;
+        button.setAttribute("aria-pressed", String(b.folder === value));
+        button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 7V5h6l2 2h10v13H3z"/></svg>';
+        const title = document.createElement("span");
+        title.textContent = name;
+        title.className = "ld-bookmark-folder-name";
+        const count = document.createElement("span");
+        count.className = "ld-bookmark-folder-count";
+        count.textContent = b.verified ? String(b.items.filter(item => value === "*" ||
+          (b.data?.items[item.key]?.folder || "") === (value ? value.slice(7) : "")).length) : "";
+        button.append(title, count);
+        const row = document.createElement("div");
+        row.className = "ld-bookmark-folder-row";
+        row.append(button);
+        if (value.startsWith("folder:") && !b.compact) {
+          row.dataset.folderRow = name;
+          row.draggable = !b.busy && !b.loading;
+          const more = document.createElement("details");
+          more.className = "ld-bookmark-folder-more";
+          more.innerHTML = '<summary>···</summary><div class="ld-bookmark-folder-menu"><button type="button" data-bookmark-action="rename-folder">修改</button><button type="button" data-bookmark-action="delete-folder">删除</button></div>';
+          more.querySelector("summary").setAttribute("aria-label", `管理收藏夹：${name}`);
+          const menu = more.querySelector(".ld-bookmark-folder-menu");
+          menu.setAttribute("popover", "auto");
+          menu.addEventListener("toggle", () => { if (!menu.matches(":popover-open")) more.open = false; });
+          more.addEventListener("toggle", () => {
+            if (more.open) {
+              for (const other of nav.querySelectorAll("details")) if (other !== more) other.open = false;
+              menu.showPopover();
+              const rect = more.getBoundingClientRect(), popup = menu.getBoundingClientRect();
+              menu.style.left = `${Math.max(8, Math.min(rect.right - popup.width, innerWidth - popup.width - 8))}px`;
+              menu.style.top = `${Math.max(8, Math.min(rect.bottom, innerHeight - popup.height - 8))}px`;
+            } else if (menu.matches(":popover-open")) menu.hidePopover();
+          });
+          row.append(more);
+        }
+        nav.append(row);
+      }
+    }
+
+    function renderBookmarkStatus() {
+      const b = state.bookmarks, dialog = b.dialog;
+      dialog.querySelector(".ld-bookmark-status").textContent = b.message ||
+        (b.skipped ? `另有 ${b.skipped} 条收藏，请到原站查看` : "收藏与 L 站同步 · 整理数据可通过 Gist 手动同步");
+      dialog.querySelector(".ld-bookmark-total").textContent = b.verified && b.complete ? b.items.length : "";
+      dialog.querySelector(".ld-bookmark-tools").disabled = b.loading || b.busy || !b.complete || !b.data;
+      dialog.querySelector(".ld-bookmark-tools").hidden = !b.verified;
+      if (!b.verified) {
+        dialog.querySelector(".ld-bookmark-editor").hidden = true;
+        dialog.querySelector(".ld-bookmark-sync").hidden = true;
+        clearBookmarkSyncInput();
+        dialog.querySelector(".ld-bookmark-browse").hidden = false;
+        dialog.querySelector(".ld-bookmark-folders").replaceChildren();
+        setBookmarkFolderFormOpen(false);
+      }
+      for (const control of dialog.querySelectorAll(".ld-bookmark-sidebar button, .ld-bookmark-sidebar input, .ld-bookmark-backup button")) {
+        control.disabled = b.loading || b.busy || !b.complete || !b.verified;
+      }
+      dialog.querySelector(".ld-bookmark-editor fieldset").disabled = b.loading || b.busy;
+      dialog.querySelector(".ld-bookmark-sync fieldset").disabled = b.loading || b.busy || !b.verified;
+      dialog.querySelector('[data-bookmark-action="sync-settings"]').disabled = b.loading || b.busy || !b.verified;
+      dialog.querySelector('[data-bookmark-action="refresh"]').disabled = b.loading || b.busy;
+      dialog.querySelector('[data-bookmark-action="close"]').disabled = b.busy;
+      dialog.querySelector(".ld-bookmark-list").setAttribute("aria-busy", String(b.loading));
+    }
+
+    function renderBookmarkList() {
+      const b = state.bookmarks, dialog = b.dialog;
+      syncBookmarkFolders();
+      renderBookmarkStatus();
+      const list = dialog.querySelector(".ld-bookmark-list");
+      const scrollTop = b.editingKey ? b.listScrollTop : list.scrollTop;
+      const query = dialog.querySelector(".ld-bookmark-search").value.trim().toLocaleLowerCase();
+      dialog.querySelector(".ld-bookmark-search-clear").hidden = !dialog.querySelector(".ld-bookmark-search").value;
+      const folder = b.folder;
+      const sort = dialog.querySelector(".ld-bookmark-sort").value;
+      const items = (b.verified ? b.items : []).filter(item => {
+        const meta = b.data?.items[item.key];
+        return (!b.complete || folder === "*" || (meta?.folder || "") === (folder.startsWith("folder:") ? folder.slice(7) : "")) &&
+          (!b.complete || !query || [item.title, item.excerpt, item.name, meta?.folder, meta?.note, ...(meta?.tags || [])]
+            .some(text => (text || "").toLocaleLowerCase().includes(query)));
+      }).sort((a, c) => sort === "title" ? a.title.localeCompare(c.title, "zh-CN") :
+        (sort === "oldest" ? a.createdAt - c.createdAt : c.createdAt - a.createdAt) || a.id - c.id);
+      const fragment = document.createDocumentFragment();
+      for (const item of items) {
+        const meta = b.data?.items[item.key];
+        const row = document.createElement("article");
+        row.className = "ld-bookmark-item";
+        row.dataset.key = item.key;
+        const link = document.createElement("a");
+        link.href = item.url;
+        link.append(buildBookmarkText(item.title, query));
+        link.classList.toggle("ld-bookmark-match", Boolean(query && item.title.toLocaleLowerCase().includes(query)));
+        link.dataset.bookmarkAction = "preview";
+        link.rel = "noopener noreferrer";
+        const info = document.createElement("div");
+        info.className = "ld-bookmark-row-meta";
+        const date = document.createElement("span");
+        date.textContent = item.unavailable ? "内容已隐藏或删除" : item.createdAt ? `${new Date(item.createdAt).toLocaleDateString()} 收藏` : "";
+        info.append(date);
+        const detail = document.createElement("div");
+        const isReply = item.key.startsWith("Post:") && item.postNumber > 1;
+        detail.className = isReply ? "ld-bookmark-reply" : "ld-bookmark-topic-detail";
+        if (isReply) {
+          const floor = document.createElement("span");
+          floor.className = "ld-bookmark-floor";
+          floor.textContent = `↳ #${item.postNumber} 回复`;
+          detail.append(floor);
+        }
+        const excerpt = document.createElement("p");
+        excerpt.className = "ld-bookmark-excerpt";
+        const matched = query && item.excerpt.toLocaleLowerCase().includes(query);
+        let previewText = item.excerpt;
+        if (matched) {
+          const start = Math.max(0, item.excerpt.toLocaleLowerCase().indexOf(query) - 24);
+          const end = start + query.length + 100;
+          previewText = `${start ? "…" : ""}${item.excerpt.slice(start, end)}${end < item.excerpt.length ? "…" : ""}`;
+        }
+        excerpt.append(buildBookmarkText(previewText, query));
+        detail.classList.toggle("ld-bookmark-match", Boolean(matched));
+        detail.append(excerpt);
+        const chips = document.createElement("div");
+        chips.className = "ld-bookmark-chips";
+        chips.classList.toggle("ld-bookmark-match", Boolean(query && [meta?.folder, ...(meta?.tags || [])].some(text => text?.toLocaleLowerCase().includes(query))));
+        for (const [index, label] of [meta?.folder || "未分类", ...(meta?.tags || [])].entries()) {
+          const chip = document.createElement("span");
+          chip.className = index === 0 ? "ld-bookmark-folder-chip" : "ld-bookmark-tag-chip";
+          chip.append(index === 0 ? "收藏夹 · " : "# ");
+          chip.setAttribute("aria-label", `${index === 0 ? "收藏夹" : "标签"}：${label}`);
+          chip.append(buildBookmarkText(label, query));
+          chips.append(chip);
+        }
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.dataset.bookmarkAction = "edit";
+        edit.textContent = "分类与备注";
+        edit.disabled = b.busy || b.loading || !b.complete;
+        info.append(chips, edit);
+        row.append(link, detail);
+        for (const text of [meta?.note && `备注：${meta.note}`, item.name && `书签：${item.name}`].filter(Boolean)) {
+          const note = document.createElement("p");
+          note.className = "ld-bookmark-excerpt ld-bookmark-note";
+          note.classList.toggle("ld-bookmark-match", Boolean(query && text.toLocaleLowerCase().includes(query)));
+          note.append(buildBookmarkText(text, query));
+          row.append(note);
+        }
+        row.append(info);
+        fragment.append(row);
+      }
+      if (!items.length && b.complete) {
+        const empty = document.createElement("div");
+        empty.className = "ld-bookmark-empty";
+        const title = document.createElement("strong");
+        title.textContent = !b.items.length ? "还没有收藏" : query ? "没有找到相关收藏" : "这个收藏夹还是空的";
+        const hint = document.createElement("p");
+        hint.textContent = !b.items.length ? "阅读帖子时点击书签按钮，好内容就会出现在这里。" : query ? "试试其他关键词，或查看全部收藏。" : b.compact ? "点击“管理面板”为收藏分类，或在帖子旁选择收藏夹。" : "在收藏条目上点击“分类与备注”，就能把它放进来。";
+        empty.append(title, hint);
+        if (b.items.length) {
+          const reset = document.createElement("button");
+          reset.type = "button";
+          reset.dataset.bookmarkAction = "clear-filter";
+          reset.textContent = "查看全部收藏";
+          empty.append(reset);
+        }
+        fragment.append(empty);
+      }
+      list.replaceChildren(fragment);
+      list.scrollTop = scrollTop;
+    }
+
+    function buildBookmarkText(text, query) {
+      const fragment = document.createDocumentFragment();
+      if (!query) {
+        fragment.append(text);
+        return fragment;
+      }
+      const pattern = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+      text.split(pattern).forEach((part, index) => {
+        if (index % 2 === 0) fragment.append(part);
+        else {
+          const mark = document.createElement("mark");
+          mark.textContent = part;
+          fragment.append(mark);
+        }
+      });
+      return fragment;
+    }
+
+    function editBookmark(key) {
+      const b = state.bookmarks, item = b.items.find(item => item.key === key);
+      if (!item) return;
+      const editor = b.dialog.querySelector(".ld-bookmark-editor");
+      const meta = b.data?.items[key];
+      b.listScrollTop = b.dialog.querySelector(".ld-bookmark-list").scrollTop;
+      b.editingKey = key;
+      editor.querySelector(".ld-bookmark-edit-title").textContent = `${item.title}${item.postNumber > 1 ? ` · 第 ${item.postNumber} 楼` : ""}`;
+      editor.elements.folder.value = meta?.folder || "";
+      editor.elements.tags.value = meta?.tags.join("，") || "";
+      editor.elements.note.value = meta?.note || "";
+      b.editingValues = JSON.stringify([...new FormData(editor)]);
+      editor.hidden = false;
+      b.dialog.querySelector(".ld-bookmark-browse").hidden = true;
+      b.dialog.querySelector(".ld-bookmark-more").open = false;
+      editor.elements.folder.focus();
+    }
+
+    async function closeBookmarkEditor(checkChanges = true) {
+      const b = state.bookmarks, editor = b.dialog.querySelector(".ld-bookmark-editor");
+      const sync = b.dialog.querySelector(".ld-bookmark-sync");
+      if (!sync.hidden) {
+        if (checkChanges && sync.elements.token.value && !await confirmBookmarkAction("Token 尚未保存，确定放弃填写并返回吗？", "放弃填写")) return false;
+        sync.hidden = true;
+        clearBookmarkSyncInput();
+        b.dialog.querySelector(".ld-bookmark-browse").hidden = false;
+      }
+      if (editor.hidden) return true;
+      if (checkChanges && b.editingValues !== JSON.stringify([...new FormData(editor)]) && !await confirmBookmarkAction("修改还没保存，确定放弃吗？", "放弃修改")) return false;
+      editor.hidden = true;
+      b.editingKey = "";
+      b.dialog.querySelector(".ld-bookmark-browse").hidden = false;
+      b.dialog.querySelector(".ld-bookmark-list").scrollTop = b.listScrollTop;
+      b.dialog.querySelector(".ld-bookmark-list").focus({ preventScroll: true });
+      return true;
+    }
+
+    function setBookmarkFolderFormOpen(open) {
+      const dialog = state.bookmarks.dialog;
+      dialog.querySelector(".ld-bookmark-folder-form").hidden = !open;
+      dialog.querySelector('[data-bookmark-action="new-folder"]').setAttribute("aria-expanded", String(open));
+      if (open) dialog.querySelector(".ld-bookmark-folder-form input").focus();
+    }
+
+    async function runBookmarkAction(action, success) {
+      const b = state.bookmarks;
+      if (b.busy || b.loading) return;
+      b.busy = true;
+      b.message = "正在处理…";
+      renderBookmarkList();
+      try {
+        await action();
+        b.message = success;
+      } catch (error) {
+        b.message = error.message || "操作失败，未保存";
+      } finally {
+        b.busy = false;
+        renderBookmarkList();
+        scheduleBookmarkRefresh();
+      }
+    }
+
+    async function importBookmarkBackup(backup) {
+      const b = state.bookmarks;
+      if (backup?.type !== "sidepeek-bookmark-metadata" || backup.origin !== location.origin || backup.userId !== b.user?.id) {
+        throw new Error("仅可导入当前 L 站账号的收藏整理备份");
+      }
+      if (!backup.data) throw new Error("备份缺少收藏整理数据");
+      const incoming = normalizeBookmarkData(backup.data);
+      await updateBookmarkData(data => {
+        data.folders = [...new Set([...data.folders, ...incoming.folders])];
+        data.items = { ...incoming.items, ...data.items };
+      });
+    }
+
+    function isBookmarkBackdrop(event) {
+      const b = state.bookmarks;
+      if (b.compact || event.target !== b.dialog) return false;
+      const rect = b.dialog.getBoundingClientRect();
+      return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+    }
+
+    function moveBookmarkFolder(folder, target, after = false) {
+      runBookmarkAction(async () => {
+        await updateBookmarkData(data => {
+          if (folder === target || !data.folders.includes(folder) || !data.folders.includes(target)) return;
+          data.folders = data.folders.filter(name => name !== folder);
+          data.folders.splice(data.folders.indexOf(target) + Number(after), 0, folder);
+        });
+      }, "收藏夹顺序已保存");
+    }
+
+    function editBookmarkFolder(row) {
+      const b = state.bookmarks, folder = row.dataset.folderRow;
+      const button = row.querySelector("[data-bookmark-folder]"), more = row.querySelector("details");
+      more.open = false;
+      const form = document.createElement("form");
+      form.className = "ld-bookmark-folder-rename";
+      const input = document.createElement("input");
+      input.value = folder;
+      input.maxLength = 60;
+      input.required = true;
+      input.setAttribute("aria-label", "收藏夹名称，Enter 保存，Esc 取消");
+      input.title = "Enter 保存，Esc 或点击外部取消";
+      form.append(input);
+      row.append(form);
+      button.hidden = more.hidden = true;
+      row.draggable = false;
+      let saving = false;
+      const cancel = () => {
+        if (saving) return;
+        form.remove();
+        button.hidden = more.hidden = false;
+        row.draggable = true;
+      };
+      input.addEventListener("blur", cancel);
+      input.addEventListener("input", () => input.setCustomValidity(""));
+      input.addEventListener("keydown", event => {
+        if (event.key === "Enter" && event.isComposing) event.preventDefault();
+        if (event.key !== "Escape" || event.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancel();
+        button.focus();
+      });
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (saving || b.busy || b.loading) return;
+        const name = input.value.trim();
+        if (!name || (name !== folder && b.data.folders.includes(name))) {
+          input.setCustomValidity(!name ? "请输入收藏夹名称" : "已有同名收藏夹");
+          input.reportValidity();
+          return;
+        }
+        if (name === folder) { cancel(); button.focus(); return; }
+        saving = b.busy = true;
+        b.message = "正在保存收藏夹名称…";
+        renderBookmarkStatus();
+        try {
+          await updateBookmarkData(data => {
+            if (data.folders.includes(name)) throw new Error("已有同名收藏夹");
+            if (!data.folders.includes(folder)) throw new Error("收藏夹已变化，请刷新后重试");
+            data.folders = data.folders.map(value => value === folder ? name : value);
+            for (const item of Object.values(data.items)) if (item.folder === folder) item.folder = name;
+          });
+          if (b.folder === `folder:${folder}`) b.folder = `folder:${name}`;
+          b.message = "收藏夹名称已修改";
+          b.busy = false;
+          renderBookmarkList();
+        } catch (error) {
+          b.message = error.message || "保存失败，请重试";
+        } finally {
+          saving = b.busy = false;
+          renderBookmarkStatus();
+          if (input.isConnected) input.focus();
+          else [...b.dialog.querySelectorAll("[data-bookmark-folder]")].find(node => node.dataset.bookmarkFolder === `folder:${name}`)?.focus();
+        }
+      });
+      input.focus();
+      input.select();
+    }
+
+    async function handleBookmarkPanelClick(event) {
+      const b = state.bookmarks;
+      const backdrop = b.backdropPointerDown && isBookmarkBackdrop(event);
+      b.backdropPointerDown = false;
+      if (!(event.target instanceof Element) || b.busy) return;
+      if (backdrop) {
+        if (await closeBookmarkEditor()) closeBookmarkPanel();
+        return;
+      }
+      if (!event.target.closest(".ld-bookmark-more")) b.dialog.querySelector(".ld-bookmark-more").open = false;
+      for (const more of b.dialog.querySelectorAll(".ld-bookmark-folder-more[open]")) {
+        if (!more.contains(event.target)) more.open = false;
+      }
+      const folderButton = event.target.closest("[data-bookmark-folder]");
+      if (folderButton) {
+        if (b.loading || !b.complete || !await closeBookmarkEditor()) return;
+        b.folder = folderButton.dataset.bookmarkFolder;
+        renderBookmarkList();
+        [...b.dialog.querySelectorAll("[data-bookmark-folder]")].find(button => button.dataset.bookmarkFolder === b.folder)?.focus();
+        return;
+      }
+      const button = event.target instanceof Element ? event.target.closest("[data-bookmark-action]") : null;
+      if (!button) return;
+      const action = button.dataset.bookmarkAction;
+      const key = button.closest(".ld-bookmark-item")?.dataset.key || b.editingKey;
+      const item = b.items.find(item => item.key === key);
+      if (action === "close" && await closeBookmarkEditor()) closeBookmarkPanel();
+      if (action === "manage") openBookmarkPanel();
+      if (action === "sync-settings") openBookmarkSync();
+      if (action === "disconnect-sync" && await confirmBookmarkAction("清除本机的同步配置和 Token？云端 Gist 与本机收藏整理数据不会删除。", "断开同步")) {
+        runBookmarkAction(async () => {
+          await assertBookmarkAccount(b.user, b.token);
+          await navigator.locks.request(`ld-bookmarks-v1:${b.user.id}`, () => writeBookmarkData(`ld-bookmarks-gist:${b.user.id}`, null));
+          const form = b.dialog.querySelector(".ld-bookmark-sync");
+          form.reset();
+          clearBookmarkSyncInput();
+          form.querySelector(".ld-bookmark-token-status").textContent = "尚未配置 Token";
+          form.querySelector(".ld-bookmark-sync-last").textContent = "已断开同步";
+        }, "已清除本机同步配置，云端数据保留");
+      }
+      if (action === "refresh" && await closeBookmarkEditor()) openBookmarkPanel("", true, b.compact);
+      if (action === "cancel-edit") closeBookmarkEditor();
+      if (action === "new-folder") setBookmarkFolderFormOpen(true);
+      if (action === "cancel-folder") setBookmarkFolderFormOpen(false);
+      if (action === "clear-search") {
+        b.dialog.querySelector(".ld-bookmark-search").value = "";
+        renderBookmarkList();
+        b.dialog.querySelector(".ld-bookmark-search").focus();
+      }
+      if (action === "rename-folder" && await closeBookmarkEditor()) {
+        editBookmarkFolder(button.closest("[data-folder-row]"));
+      }
+      if (action === "clear-filter") {
+        b.folder = "*";
+        b.dialog.querySelector(".ld-bookmark-search").value = "";
+        renderBookmarkList();
+      }
+      if (action === "import") b.dialog.querySelector(".ld-bookmark-import").click();
+      if (action === "edit" && item) editBookmark(item.key);
+      if (action === "preview" && item && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        b.returnToList = true;
+        closeBookmarkPanel(false);
+        openDrawer(item.url, item.title, null);
+        state.root.querySelector(".ld-drawer-close").focus();
+      }
+      if (action === "delete-folder") {
+        const folder = button.closest("[data-folder-row]")?.dataset.folderRow;
+        if (!folder || !await closeBookmarkEditor()) return;
+        if (!await confirmBookmarkAction(`删除收藏夹「${folder}」？其中的收藏将移到未分类，原站书签保留。`, "删除收藏夹")) return;
+        runBookmarkAction(async () => {
+          await updateBookmarkData(data => {
+            data.folders = data.folders.filter(name => name !== folder);
+            for (const item of Object.values(data.items)) if (item.folder === folder) item.folder = "";
+          });
+          syncBookmarkFolders();
+        }, "收藏夹已删除，原站书签保留");
+      }
+      if (action === "remove" && item) {
+        runBookmarkAction(async () => {
+          await assertBookmarkAccount(b.user, b.token);
+          await performDeleteBookmark(item.id);
+          b.items = b.items.filter(value => value.id !== item.id);
+          syncPostBookmarkState(item.key, false);
+          invalidateBookmarkCache();
+          closeBookmarkEditor(false);
+        }, "已取消原站收藏；本机整理信息保留，重新收藏后可继续使用");
+      }
+      if (["export", "export-recovery"].includes(action)) {
+        runBookmarkAction(async () => {
+          await assertBookmarkAccount(b.user, b.token);
+          const recovery = action === "export-recovery" ? (await readBookmarkData(`ld-bookmarks-gist:${b.user.id}`))?.recovery?.local : null;
+          if (action === "export-recovery" && !recovery) throw new Error("暂无同步前备份");
+          const data = normalizeBookmarkData(recovery || await readBookmarkData(`ld-bookmarks-v1:${b.user.id}`));
+          const backup = { type: "sidepeek-bookmark-metadata", origin: location.origin, userId: b.user.id, data };
+          const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: "application/json" }));
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `sidepeek-bookmarks-${new Date().toISOString().slice(0, 10)}.json`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, "已导出本机分类、标签和备注；不包含正文和原站书签");
+      }
+      if (["import", "export"].includes(action)) b.dialog.querySelector(".ld-bookmark-more").open = false;
     }
 
     function buildFlagPopover(post) {
@@ -6873,6 +9550,7 @@
     }
 
     function closeAllPopovers() {
+      closeBookmarkPicker();
       state.root?.querySelectorAll(".ld-reactions-popover, .ld-flag-popover, .ld-post-replies-popover").forEach((p) => {
         p.setAttribute("hidden", "");
       });
@@ -7876,7 +10554,7 @@
         if (settings.floatingReplyButton !== "off" && settings.floatingReplyButton !== "on") {
           settings.floatingReplyButton = DEFAULT_SETTINGS.floatingReplyButton;
         }
-        for (const key of ["showTrustStatus", "listAlignLeft"]) {
+        for (const key of ["showTrustStatus", "listAlignLeft", "enhancedBookmarks"]) {
           if (settings[key] !== "on" && settings[key] !== "off") settings[key] = DEFAULT_SETTINGS[key];
         }
 
@@ -8083,6 +10761,11 @@
         return;
       }
 
+      if (key === "enhancedBookmarks") {
+        syncBookmarkFeature();
+        return;
+      }
+
       if (key === "drawerWidth") {
         applyDrawerWidth();
         syncSettingsUI();
@@ -8124,6 +10807,7 @@
       applyReplyPanelPosition();
       syncTrustStatusVisibility();
       syncReplyUI();
+      syncBookmarkFeature();
       refreshCurrentView();
       setSettingsPanelOpen(false);
     }
@@ -8336,6 +11020,7 @@
     }
 
     function handleWindowResize() {
+      closeBookmarkPicker();
       if (state.settings.drawerWidth === "custom") {
         state.settings.drawerWidthCustom = clampDrawerWidth(state.settings.drawerWidthCustom);
         applyDrawerWidth();
@@ -8347,7 +11032,8 @@
       scheduleTopicTrackerPositionSync();
     }
 
-    function handleWindowScroll() {
+    function handleWindowScroll(event) {
+      if (state.bookmarks.pickerTarget && !state.bookmarks.picker.contains(event?.target)) closeBookmarkPicker();
       if (!document.querySelector(TOPIC_TRACKER_SELECTOR)) {
         return;
       }
@@ -8385,7 +11071,7 @@
       };
 
       const observer = new MutationObserver((mutations) => {
-        if (mutations.every((mutation) => mutation.target instanceof Element && mutation.target.closest?.(`#${ROOT_ID}, #ld-trust-status, #${IMAGE_PREVIEW_ROOT_ID}`))) {
+        if (mutations.every((mutation) => mutation.target instanceof Element && mutation.target.closest?.(`#${ROOT_ID}, #ld-trust-status, #ld-bookmarks, #ld-bookmark-picker, #${IMAGE_PREVIEW_ROOT_ID}`))) {
           return;
         }
 
@@ -8412,6 +11098,11 @@
     }
 
     function handleLocationChange() {
+      closeBookmarkPicker();
+      if (state.bookmarks.compact) {
+        state.bookmarks.returnToList = false;
+        closeBookmarkPanel(false);
+      }
       state.lastLocation = location.href;
       clearTopicTrackerRefreshSync();
       scheduleTopicTrackerPositionSync();

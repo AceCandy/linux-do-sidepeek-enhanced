@@ -11,9 +11,9 @@ function replaceOnce(text, pattern, replacement) {
 function buildUserscript({ content, css, native, template, version }) {
   content = replaceOnce(content, /^\(function \(\) \{\n  "use strict";\n\n  const PAGE_WINDOW = window;\n\n/g, "");
   content = replaceOnce(content, /\n\}\)\(\);\s*$/g, "");
-  // 仅替换两个存储适配函数；边界必须唯一，防止源码变化后静默漏掉逻辑。
-  for (const name of ["readPersistedSettings", "saveSettings"]) {
-    content = replaceOnce(content, new RegExp(`^  function ${name}\\(\\) \\{\\n[\\s\\S]*?^  \\}\\n\\n`, "gm"), "");
+  // 仅替换存储适配函数；边界必须唯一，防止源码变化后静默漏掉逻辑。
+  for (const name of ["readPersistedSettings", "saveSettings", "readBookmarkData", "writeBookmarkData"]) {
+    content = replaceOnce(content, new RegExp(`^  (?:async )?function ${name}\\([^\\n]*\\) \\{\\n[\\s\\S]*?^  \\}\\n\\n`, "gm"), "");
   }
   const parts = {
     native: native.trimEnd(),

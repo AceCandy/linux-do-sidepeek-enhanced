@@ -18,5 +18,7 @@ node --check "$ROOT_DIR/userscript/linuxdo-sidepeek.user.js"
 node "$ROOT_DIR/scripts/check-cache.cjs"
 node "$ROOT_DIR/scripts/check-preview.cjs"
 node "$ROOT_DIR/scripts/check-status.cjs"
+node "$ROOT_DIR/scripts/check-bookmarks.cjs"
+node "$ROOT_DIR/scripts/check-gist.cjs"
 
 echo "[check] ok"

@@ -135,6 +135,7 @@ bash scripts/agent-smoke.sh --cdp-port 9222
 
 补充规则：
 - 修复用户已发现的 bug 时，更新 `doc/agent-smoke-cases.md` 中对应回归用例
+- 修改界面后必须实际查看桌面与手机截图，检查首屏内容、主次操作和关键按钮可见性；不能用“无溢出”断言代替操作清晰度验收，并检查原站表单样式干扰。
 - 优先把稳定断言写入 agent 用例库，再考虑升级成真正脚本化测试
 - PR 合并前，如果新增或改动了可稳定断言的交互路径，先在提交分支补对应 agent smoke 用例并跑过，再合并到 `main`
 
@@ -142,10 +143,13 @@ bash scripts/agent-smoke.sh --cdp-port 9222
 - `manifest.json`：声明 MV3 扩展信息、匹配站点与 content script 注入配置
 - `src/content.js`：整个功能集中在一个 IIFE 中，负责状态、事件委托、抽屉 UI、网络请求、路由监听与设置持久化
 - `src/content.css`：全部样式集中在单文件，选择器统一以 `ld-` 前缀隔离站点样式
-- `src/background.js`：仅接受本站顶层内容脚本的信任等级读取消息；不得扩展为任意 URL 代理
+- `src/background.js`：仅接受本站顶层内容脚本的信任等级读取及固定 GitHub Gist 同步消息；不得扩展为任意 URL 代理。Gist 仅 GET/POST/PATCH 固定端点和文件，禁止重定向及携带站点 Cookie。
 - `src/native-renderer.js`：MAIN world 桥，复用 Discourse 正文和 Boost 组件，并读取原站表情配置；只处理抽屉固定节点事件，不提供任意请求能力。Boost 写入由原站组件在用户操作后执行。切帖、关闭和 pagehide 必须销毁实例，失败保留原有正文。油猴内嵌同一文件，修改后必须同步。
 - 当前实现采用“单状态对象 + 一组函数”的组织方式，而不是类、模块分层或多文件拆分
 - 状态面板回归：`node scripts/check-status.cjs`；带固定页面浏览器验证：`node scripts/check-status.cjs --browser`（需要 agent-browser，会自行关闭测试浏览器）。状态功能修改需同步独立油猴发行版。
+- 收藏管理回归：`node scripts/check-bookmarks.cjs`；固定页面交互：`node scripts/check-bookmarks.cjs --browser`（自行关闭测试浏览器）。原生书签保存在站点，分类/标签/备注按用户 ID 保存到扩展 storage 或油猴 GM 存储；两个收藏存储适配函数同设置适配一起由生成器替换。导入只合并同账号整理数据，不调用原站写入接口。
+- 收藏默认入口位于等级下方，复用同一 dialog 的非模态紧凑模式；“管理面板”才切为模态。悬停不得抢焦点，预览返回需保留原模式。收藏夹选择器使用原生 popover，切帖/关闭/pagehide 清理；原站成功、本机分类失败时不得误报整体成功或重试重复创建书签。
+- Gist 手动同步回归：`node scripts/check-gist.cjs`。只同步整理数据，Token 按账号保存在本机独立配置键，不进入备份；按同步基线逐字段合并，冲突停止。Gist 无跨设备原子锁，不得宣称完全消除并发覆盖；保存同步前快照，禁止自动重试创建/写入。公共逻辑修改后重新生成油猴。
 - 预取与阅读回归：`node scripts/check-preview.cjs`、`node scripts/check-preview-browser.cjs`；100 主题缓存回归：`node scripts/check-cache.cjs`。阅读上报只允许实际可见楼层，预取不得计入已读；同一任务中已确认的功能和参数应继续实现，不能因新增子功能而遗漏原有目标。
 
 ## JavaScript 代码风格
