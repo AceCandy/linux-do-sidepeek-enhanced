@@ -139,6 +139,7 @@
     topicSearchStatus: null,
     topicSearchResults: null,
     topicSearchAbortController: null,
+    topicSearchHighlightObserver: null,
     topicSearchQuery: "",
     topicSearchPage: 1,
     prevButton: null,
@@ -1329,7 +1330,7 @@
       return;
     }
 
-    setTopicSearchOpen(false);
+    if (!isSameTrackedTopic) setTopicSearchOpen(false);
     stopReading();
     state.abortController?.abort();
     state.abortController = null;
@@ -1890,7 +1891,7 @@
     const footer = document.createElement("div");
     footer.className = "ld-topic-footer";
 
-    if (state.settings.postMode === "first" && basePosts.length > 1) {
+    if (viewModel.mode === "first" && basePosts.length > 1) {
       const note = document.createElement("div");
       note.className = "ld-topic-note";
       note.textContent = `当前为"仅首帖"模式。想看回复，可在右上角选项里切回"完整主题"。`;
@@ -1934,7 +1935,7 @@
     const posts = topic?.post_stream?.posts || [];
     const moreAvailable = hasMoreTopicPosts(topic);
 
-    if (state.settings.postMode === "first") {
+    if (state.settings.postMode === "first" && !targetSpec?.targetPostNumber) {
       return applyAuthorFilterToViewModel({
         posts: posts.slice(0, 1),
         mode: "first",
@@ -2364,8 +2365,6 @@
     if (isOpen && !state.currentTopic) {
       return;
     }
-
-    if (isOpen) setTopicSearchOpen(false);
 
     if (!isOpen) {
       stopReplyPanelDrag();
@@ -3478,6 +3477,10 @@
     state.topicSearchPanel.hidden = !isOpen;
     state.topicSearchButton.setAttribute("aria-expanded", String(isOpen));
     if (isOpen) {
+      if (!state.topicSearchHighlightObserver) {
+        state.topicSearchHighlightObserver = new MutationObserver(updateTopicSearchHighlights);
+        state.topicSearchHighlightObserver.observe(state.content, { childList: true, subtree: true, characterData: true });
+      }
       state.topicSearchInput.focus();
       return;
     }
@@ -3491,6 +3494,35 @@
     state.topicSearchPanel.querySelectorAll("[data-search-page]").forEach((button) => { button.hidden = true; });
     state.topicSearchQuery = "";
     state.topicSearchPage = 1;
+    state.topicSearchHighlightObserver?.disconnect();
+    state.topicSearchHighlightObserver = null;
+    updateTopicSearchHighlights();
+  }
+
+  function updateTopicSearchHighlights() {
+    if (!globalThis.CSS?.highlights || typeof Highlight === "undefined") return;
+    CSS.highlights.delete("ld-topic-search");
+    if (!state.topicSearchQuery || state.topicSearchPanel.hidden) return;
+
+    const terms = state.topicSearchQuery.split(/\s+/).filter(Boolean)
+      .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(terms.join("|"), "giu");
+    const highlight = new Highlight();
+    // 原生高亮不修改正文 DOM，原站组件重绘后由观察器重建范围。
+    for (const root of [state.topicSearchResults, ...state.content.querySelectorAll(".ld-post-body")]) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement?.closest("script, style, textarea, [hidden]")) continue;
+        for (const match of node.textContent.matchAll(pattern)) {
+          const range = document.createRange();
+          range.setStart(node, match.index);
+          range.setEnd(node, match.index + match[0].length);
+          highlight.add(range);
+        }
+      }
+    }
+    CSS.highlights.set("ld-topic-search", highlight);
   }
 
   async function searchCurrentTopic(query, page = 1) {
@@ -3501,6 +3533,8 @@
     state.topicSearchAbortController = controller;
     state.topicSearchStatus.textContent = "搜索中…";
     state.topicSearchResults.replaceChildren();
+    state.topicSearchQuery = "";
+    updateTopicSearchHighlights();
     const prev = state.topicSearchPanel.querySelector('[data-search-page="prev"]');
     const next = state.topicSearchPanel.querySelector('[data-search-page="next"]');
     prev.hidden = next.hidden = true;
@@ -3526,15 +3560,15 @@
         button.className = "ld-topic-search-result";
         const snippet = new DOMParser().parseFromString(typeof post.blurb === "string" ? post.blurb : "", "text/html").body.textContent || "";
         button.textContent = `#${post.post_number} · ${post.username || ""} · ${snippet}`;
-        button.title = "定位楼层（未显示的楼层将在新标签打开）";
+        button.title = "在当前侧栏定位楼层";
         button.addEventListener("click", () => {
-          setTopicSearchOpen(false);
           navigateToPost(post.post_number);
         });
         state.topicSearchResults.append(button);
       }
       state.topicSearchQuery = query;
       state.topicSearchPage = page;
+      updateTopicSearchHighlights();
       const more = Boolean(data.grouped_search_result?.more_full_page_results || data.grouped_search_result?.more_posts);
       state.topicSearchStatus.textContent = posts.length
         ? `第 ${page} 页 · ${posts.length} 条结果${more && page >= 10 ? "；请缩小搜索范围查看更多" : ""}`
@@ -4579,7 +4613,7 @@
   }
 
   function shouldFetchTargetedTopic(topic, targetSpec) {
-    if (!targetSpec?.hasTarget || state.settings.postMode === "first") {
+    if (!targetSpec?.hasTarget || (state.settings.postMode === "first" && !targetSpec.targetPostNumber)) {
       return false;
     }
 
@@ -4802,7 +4836,7 @@
 
   function navigateToPost(postNumber) {
     const numericPostNumber = Number(postNumber);
-    if (!Number.isFinite(numericPostNumber)) {
+    if (!Number.isSafeInteger(numericPostNumber) || numericPostNumber <= 0) {
       return false;
     }
 
@@ -4814,8 +4848,7 @@
 
     const url = buildAbsoluteTopicPostUrl(state.currentTopic, numericPostNumber, state.currentTopicIdHint);
     if (url) {
-      showToast(`第 ${numericPostNumber} 楼当前未加载，已在新标签打开`, "info");
-      window.open(url, "_blank", "noopener,noreferrer");
+      openDrawer(url, state.currentFallbackTitle, state.activeLink);
       return true;
     }
 
@@ -5664,7 +5697,6 @@
     }
 
     if (isOpen) {
-      setTopicSearchOpen(false);
       setReplyPanelOpen(false);
       syncSettingsUI();
       updateSettingsPopoverPosition();

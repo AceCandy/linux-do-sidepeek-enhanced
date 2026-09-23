@@ -1017,6 +1017,11 @@ body.ld-native-header-layout .d-header > .wrap {
   color: var(--tertiary, #3b82f6);
 }
 
+#ld-drawer-root ::highlight(ld-topic-search) {
+  background-color: #ffe066;
+  color: #202020;
+}
+
 #ld-drawer-root .ld-drawer-reply-panel {
   position: absolute;
   top: calc(var(--ld-reply-panel-top, 84px) + 8px);

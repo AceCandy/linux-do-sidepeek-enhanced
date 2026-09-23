@@ -688,11 +688,13 @@ try {
     window.fetch = async (input, options = {}) => {
       const url = new URL(input, location.href);
       if (url.pathname !== '/search.json') {
-        const id = Number(url.pathname.match(/\\/test\\/(\\d+)/)?.[1]);
+        const id = Number(url.pathname.match(/\\/(?:test|topic)\\/(\\d+)/)?.[1]);
         if (!id) return previousFetch(input, options);
-        const posts = [1, 2, 3].map(n => ({id:id * 100 + n, post_number:n, username:'test-user',
-          cooked:'<p style="height:700px">搜索定位正文</p>', actions_summary:[]}));
-        return new Response(JSON.stringify({id, title:'主题 ' + id, posts_count:3, post_stream:{posts, stream:posts.map(p => p.id)}}), {headers:{'content-type':'application/json'}});
+        const target = Number(url.pathname.match(/\\/(\\d+)\\.json$/)?.[1]);
+        const posts = (target === 99 ? [99] : [1, 2, 3]).map(n => ({id:id * 100 + n, post_number:n, username:n === 99 ? 'other-user' : 'test-user',
+          cooked:'<p style="height:700px">搜索定位正文 匹配 a+b TEST</p>', actions_summary:[]}));
+        return new Response(JSON.stringify({id, title:'主题 ' + id, created_by:{username:'test-user'}, posts_count:4,
+          post_stream:{posts, stream:[1,2,3,99].map(n => id * 100 + n)}}), {headers:{'content-type':'application/json'}});
       }
       const request = {url, options}; requests.push(request);
       if (delayed) return new Promise(resolve => { request.resolve = resolve; });
@@ -720,13 +722,29 @@ try {
       if (requests.at(-1).url.searchParams.get('page') !== '2' || requests.at(-1).url.searchParams.get('q') !== '匹配 & 测试 topic:1') throw Error('分页未保持已提交关键词');
       s.topicSearchPanel.querySelector('[data-search-page="prev"]').click(); await waitFor(() => !s.topicSearchAbortController);
       if (s.topicSearchPage !== 1) throw Error('搜索上一页失效');
+      s.settings.postMode = 'first'; s.settings.authorFilter = 'topicOwner';
+      const panelTop = s.topicSearchPanel.getBoundingClientRect().top;
       s.topicSearchResults.lastChild.click();
-      if (!s.topicSearchPanel.hidden || !opened?.[0].endsWith('/1/99') || opened[2] !== 'noopener,noreferrer') throw Error('未加载楼层未安全打开');
-      s.topicSearchButton.click(); await submit('匹配');
+      await waitFor(() => !s.abortController && s.content.querySelector('[data-post-number="99"]'));
+      await new Promise(requestAnimationFrame);
+      if (s.topicSearchPanel.hidden || opened || s.topicSearchQuery !== '匹配 & 测试' || s.topicSearchInput.value !== '尚未提交的词' || s.topicSearchResults.children.length !== 2) throw Error('未加载楼层未在侧栏定位并保留搜索');
+      if (Math.abs(s.topicSearchPanel.getBoundingClientRect().top - panelTop) > 1 || Math.abs(s.content.querySelector('[data-post-number="99"]').getBoundingClientRect().top - s.drawerBody.getBoundingClientRect().top) > 2) throw Error('搜索栏未固定或目标楼层未滚入视口');
+      s.settings.postMode = 'all'; s.settings.authorFilter = 'all';
+      await submit('匹配');
+      const highlights = () => [...CSS.highlights.get('ld-topic-search') || []];
+      if (!highlights().some(r => s.topicSearchResults.contains(r.startContainer) && r.toString() === '匹配') || !highlights().some(r => s.content.contains(r.startContainer) && r.toString() === '匹配')) throw Error('摘要或正文关键词未高亮');
       let scrolled = false;
       s.content.querySelector('[data-post-number="2"]').scrollIntoView = () => { scrolled = true; };
       s.topicSearchResults.firstChild.click();
-      if (!scrolled || !s.topicSearchPanel.hidden) throw Error('已加载搜索结果未定位');
+      if (!scrolled || s.topicSearchPanel.hidden) throw Error('已加载搜索结果未定位或搜索被关闭');
+      await submit('a+b test');
+      if (!highlights().some(r => r.toString() === 'a+b') || !highlights().some(r => r.toString() === 'TEST') || highlights().some(r => r.toString() === '匹配')) throw Error('特殊字符、大小写或旧高亮清理错误');
+      const body = s.content.querySelector('.ld-post-body');
+      body.replaceChildren(document.createTextNode('原站重绘 a+b'));
+      await settle();
+      if (!highlights().some(r => body.contains(r.startContainer) && r.toString() === 'a+b')) throw Error('原站重绘后高亮丢失');
+      s.topicSearchPanel.querySelector('.ld-topic-search-close').click();
+      if (!s.topicSearchPanel.hidden || CSS.highlights.has('ld-topic-search') || s.topicSearchHighlightObserver) throw Error('手动关闭未清理搜索高亮');
       s.topicSearchButton.click();
       results = {posts:Array.from({length:50}, (_,i) => ({topic_id:1, post_number:i+1, blurb:'较长的搜索结果摘要 '.repeat(30)})), grouped_search_result:{}};
       await submit('大量结果');
@@ -750,15 +768,15 @@ try {
       if (!switching.options.signal.aborted || !s.topicSearchPanel.hidden || s.topicSearchInput.value) throw Error('切帖未清理搜索');
       switching.resolve(new Response(JSON.stringify(results))); await settle();
       s.topicSearchButton.click(); s.settingsToggle.click();
-      if (!s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('设置与搜索面板冲突');
-      s.settingsCloseButton.click(); s.topicSearchButton.click(); s.replyFabButton.click();
-      if (!s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('回复与搜索面板冲突');
+      if (s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('打开设置意外关闭搜索');
+      s.settingsCloseButton.click(); s.replyFabButton.click();
+      if (s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('打开回复意外关闭搜索');
       s.replyCancelButton.click();
-      s.topicSearchButton.click(); await submit('关闭中'); const closing = requests.at(-1);
+      await submit('关闭中'); const closing = requests.at(-1);
       document.querySelector('.ld-drawer-close').click();
       if (!closing.options.signal.aborted || !s.topicSearchPanel.hidden) throw Error('关闭抽屉未取消搜索');
       closing.resolve(new Response(JSON.stringify(results))); await settle();
-      return '帖内整帖搜索、分页、文本安全、楼层定位、空结果、失败及切帖/关闭竞态：通过';
+      return '帖内搜索常驻、分页、文本安全、高亮及重绘、侧栏楼层定位、空结果、失败及切帖/关闭竞态：通过';
     } finally {
       window.fetch = previousFetch; window.open = previousOpen;
     }
