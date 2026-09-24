@@ -107,6 +107,8 @@
   cursor: pointer;
 }
 #ld-bookmark-confirm .ld-bookmark-primary { background: var(--tertiary, #147d64); color: var(--secondary, #fff); }
+#ld-bookmark-confirm.ld-bookmark-conflict form { display: grid; grid-template-columns: 1fr 1fr; }
+#ld-bookmark-confirm.ld-bookmark-conflict [value="cancel"] { grid-column: 1 / -1; grid-row: 2; }
 
 #ld-bookmarks :is(h2, h3, p, fieldset) {
   margin: 0;
@@ -679,6 +681,16 @@
 #ld-bookmarks .ld-bookmark-sync p {
   color: var(--ld-bookmark-muted);
   line-height: 1.6;
+}
+
+#ld-bookmarks .ld-bookmark-sync .ld-bookmark-auto-toggle { display: flex; align-items: center; }
+#ld-bookmarks .ld-bookmark-auto-toggle input {
+  appearance: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--ld-bookmark-accent);
 }
 
 #ld-bookmarks .ld-bookmark-sync .ld-bookmark-edit-actions {

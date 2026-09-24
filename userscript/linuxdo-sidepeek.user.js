@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.0.0
+// @version      1.0.1
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -295,6 +295,8 @@
     cursor: pointer;
   }
   #ld-bookmark-confirm .ld-bookmark-primary { background: var(--tertiary, #147d64); color: var(--secondary, #fff); }
+  #ld-bookmark-confirm.ld-bookmark-conflict form { display: grid; grid-template-columns: 1fr 1fr; }
+  #ld-bookmark-confirm.ld-bookmark-conflict [value="cancel"] { grid-column: 1 / -1; grid-row: 2; }
 
   #ld-bookmarks :is(h2, h3, p, fieldset) {
     margin: 0;
@@ -867,6 +869,16 @@
   #ld-bookmarks .ld-bookmark-sync p {
     color: var(--ld-bookmark-muted);
     line-height: 1.6;
+  }
+
+  #ld-bookmarks .ld-bookmark-sync .ld-bookmark-auto-toggle { display: flex; align-items: center; }
+  #ld-bookmarks .ld-bookmark-auto-toggle input {
+    appearance: auto;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    flex: none;
+    accent-color: var(--ld-bookmark-accent);
   }
 
   #ld-bookmarks .ld-bookmark-sync .ld-bookmark-edit-actions {
@@ -3722,7 +3734,8 @@
         message: "", skipped: 0, folder: "*", listScrollTop: 0, editingValues: "",
         compact: false, pinned: false, closeTimer: 0, restoreFocus: true, backdropPointerDown: false,
         picker: null, pickerTarget: null, pickerController: null, pickerPinned: false, pickerCloseTimer: 0,
-        cacheAt: 0, cacheVersion: 0, refreshTimer: 0, refreshController: null, confirmation: null
+        cacheAt: 0, cacheVersion: 0, refreshTimer: 0, refreshController: null, confirmation: null,
+        autoSyncTimer: 0, autoSyncPaused: false, autoSyncMessage: ""
       },
       trustPanel: null,
       trustPinned: false,
@@ -4504,6 +4517,7 @@
         flushReading(state.reading);
       };
       document.addEventListener("visibilitychange", pause);
+      document.addEventListener("visibilitychange", () => scheduleBookmarkAutoSync(0));
       window.addEventListener("blur", pause);
       window.addEventListener("focus", () => {
         if (state.reading) state.reading.lastActivity = performance.now();
@@ -4512,6 +4526,7 @@
       window.addEventListener("pagehide", () => {
         state.previewPageHidden = true;
         clearTimeout(state.bookmarks.refreshTimer);
+        clearTimeout(state.bookmarks.autoSyncTimer);
         state.bookmarks.refreshController?.abort();
         state.bookmarks.confirmation?.close();
         closeBookmarkPicker();
@@ -4529,6 +4544,7 @@
       window.addEventListener("pageshow", () => {
         state.previewPageHidden = false;
         scheduleBookmarkRefresh();
+        scheduleBookmarkAutoSync(0);
         queuePrefetchScan();
         if (state.currentUrl && !state.currentTopic) {
           loadTopic(state.currentUrl, state.currentFallbackTitle, state.currentTopicIdHint);
@@ -8017,15 +8033,26 @@
       return { version: 1, folders, items };
     }
 
-    function mergeBookmarkMetadata(base, local, remote) {
+    function mergeBookmarkMetadata(base, local, remote, preference = "") {
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const conflict = (left, right, label) => {
+        if (preference === "local") return left;
+        if (preference === "remote") return right;
+        throw Object.assign(new Error(`同步冲突：${label}`), { bookmarkConflict: true });
+      };
       const choose = (old, left, right, label) => {
         if (same(left, right) || same(right, old)) return left;
         if (same(left, old)) return right;
-        throw new Error(`同步冲突：${label}在两端都被修改；未覆盖数据。请先导出备份，再将两端该项改为一致后重试`);
+        return conflict(left, right, `${label}在两端都被修改`);
       };
-      const folders = base ? choose(base.folders, local.folders, remote.folders, "收藏夹或顺序") :
+      const folders = base ? [...choose(base.folders, local.folders, remote.folders, "收藏夹或顺序")] :
         [...new Set([...local.folders, ...remote.folders])];
+      // 选边只解决冲突，另一端新建的收藏夹仍需保留。
+      if (base && preference) {
+        for (const folder of [...local.folders, ...remote.folders]) {
+          if (!base.folders.includes(folder) && !folders.includes(folder)) folders.push(folder);
+        }
+      }
       const items = {};
       for (const key of new Set([...Object.keys(local.items), ...Object.keys(remote.items)])) {
         const empty = { folder: "", tags: [], note: "" };
@@ -8035,7 +8062,8 @@
           items[key][field] = choose(old[field], left[field], right[field], `${key} 的${{ folder: "分类", tags: "标签", note: "备注" }[field]}`);
         }
         if (items[key].folder && !folders.includes(items[key].folder)) {
-          throw new Error("同步冲突：一端删除了收藏夹，另一端仍在使用；未覆盖数据，请先统一分类");
+          items[key].folder = conflict(left.folder, right.folder, `${key} 的收藏夹在一端被删除，另一端仍在使用`);
+          if (items[key].folder && !folders.includes(items[key].folder)) folders.push(items[key].folder);
         }
       }
       return normalizeBookmarkData({ version: 1, folders, items });
@@ -8086,49 +8114,144 @@
       return normalizeBookmarkData(backup.data);
     }
 
-    async function syncBookmarkGist(input) {
+    async function syncBookmarkGist(input, automatic = false) {
       const b = state.bookmarks, user = b.user, token = b.token;
       const key = `ld-bookmarks-v1:${user.id}`, configKey = `ld-bookmarks-gist:${user.id}`;
-      await navigator.locks.request(key, async () => {
-        await assertBookmarkAccount(user, token);
+      return navigator.locks.request(key, async () => {
         const saved = await readBookmarkData(configKey);
-        if (!input.gistId && saved?.gistId) throw new Error("本机已有 Gist ID，请重新打开同步设置；如需新建，请先断开同步");
-        const config = { ...saved, token: input.token, gistId: input.gistId };
+        if (automatic && (!saved?.autoSync || saved.autoSyncError || !saved.token || !saved.gistId || !saved.lastSync ||
+            Date.now() < (saved.autoSyncAt || Date.parse(saved.lastSync) + 1800000))) {
+          renderBookmarkSyncState(saved);
+          return false;
+        }
+        if (automatic && (document.hidden || state.previewPageHidden || state.settings.enhancedBookmarks === "off")) return false;
+        if (!automatic && !input.gistId && saved?.gistId) throw new Error("本机已有 Gist ID，请重新打开同步设置；如需新建，请先断开同步");
+        const config = automatic ? { ...saved } : { ...saved, token: input.token, gistId: input.gistId };
         if (saved?.gistId !== config.gistId) { delete config.base; delete config.lastSync; }
-        const local = normalizeBookmarkData(await readBookmarkData(key));
-        const encode = data => JSON.stringify({ type: "sidepeek-bookmark-metadata", origin: location.origin, userId: user.id, data });
-        // 创建前先保存配置；远端成功后即保存 ID，避免重试重复创建。
-        await writeBookmarkData(configKey, config);
-        if (!config.gistId) {
-          const created = await requestBookmarkGist(config, "POST", encode(local));
-          if (!/^[a-f0-9]{20,40}$/.test(created?.id || "")) throw new Error("Gist 创建返回异常，请在 GitHub 检查后填写 ID");
-          config.gistId = created.id;
-          const form = b.dialog?.querySelector(".ld-bookmark-sync");
-          if (form) form.elements.gistId.value = created.id;
+        try {
+          await assertBookmarkAccount(user, token);
+          const local = normalizeBookmarkData(await readBookmarkData(key));
+          const encode = data => JSON.stringify({ type: "sidepeek-bookmark-metadata", origin: location.origin, userId: user.id, data });
+          // 创建前先保存配置；远端成功后即保存 ID，避免重试重复创建。
           await writeBookmarkData(configKey, config);
+          if (!config.gistId) {
+            const created = await requestBookmarkGist(config, "POST", encode(local));
+            if (!/^[a-f0-9]{20,40}$/.test(created?.id || "")) throw new Error("Gist 创建返回异常，请在 GitHub 检查后填写 ID");
+            config.gistId = created.id;
+            const form = b.dialog?.querySelector(".ld-bookmark-sync");
+            if (form) form.elements.gistId.value = created.id;
+            await writeBookmarkData(configKey, config);
+          }
+          const gist = await requestBookmarkGist(config, "GET");
+          const remote = readBookmarkGist(gist, user.id);
+          const base = config.base ? normalizeBookmarkData(config.base) : null;
+          let merged;
+          try {
+            merged = mergeBookmarkMetadata(base, local, remote);
+          } catch (error) {
+            if (automatic || !error.bookmarkConflict) throw error;
+            const choice = await confirmBookmarkAction(`${error.message}。本次所有冲突字段按所选端处理，其他修改继续合并。覆盖前会保存两端备份。`,
+              "以本机为准", { title: "解决同步冲突", alternateLabel: "以云端为准" });
+            if (!choice) throw new Error("已取消同步，未覆盖数据");
+            merged = mergeBookmarkMetadata(base, local, remote, choice === true ? "local" : "remote");
+          }
+          await assertBookmarkAccount(user, token);
+          // 保留上次同步前两端快照；网络失败不更改本地整理数据与合并基线。
+          config.recovery = { local, remote };
+          await writeBookmarkData(configKey, config);
+          if (JSON.stringify(merged) !== JSON.stringify(remote)) {
+            // ponytail: Gist 写入非原子；多设备高并发时需改用支持条件写入的后端。
+            const latest = await requestBookmarkGist(config, "GET");
+            if (JSON.stringify(readBookmarkGist(latest, user.id)) !== JSON.stringify(remote)) throw new Error("云端刚刚发生变化，请重新同步");
+            if (automatic && (document.hidden || state.previewPageHidden || state.settings.enhancedBookmarks === "off")) return false;
+            await requestBookmarkGist(config, "PATCH", encode(merged));
+          }
+          const verified = readBookmarkGist(await requestBookmarkGist(config, "GET"), user.id);
+          if (JSON.stringify(verified) !== JSON.stringify(merged)) throw new Error("同步期间云端被其他设备修改，请重新同步；本地数据已保留");
+          await assertBookmarkAccount(user, token);
+          if (automatic && (state.previewPageHidden || state.settings.enhancedBookmarks === "off")) return false;
+          await writeBookmarkData(key, merged);
+          b.data = merged;
+          config.base = merged;
+          config.lastSync = new Date().toISOString();
+          config.autoSyncAt = Date.now() + 1800000;
+          config.autoSyncError = "";
+          await writeBookmarkData(configKey, config);
+          b.autoSyncPaused = false;
+          renderBookmarkSyncState(config);
+          return true;
+        } catch (error) {
+          if (!automatic) throw error;
+          config.autoSyncError = error.message || "同步失败";
+          // 无法持久化时在本页暂停；保存成功后由配置协调各标签页的暂停与恢复。
+          b.autoSyncPaused = true;
+          renderBookmarkSyncState(config);
+          await writeBookmarkData(configKey, config);
+          b.autoSyncPaused = false;
+          return false;
         }
-        const gist = await requestBookmarkGist(config, "GET");
-        const remote = readBookmarkGist(gist, user.id);
-        const merged = mergeBookmarkMetadata(config.base ? normalizeBookmarkData(config.base) : null, local, remote);
-        await assertBookmarkAccount(user, token);
-        // 保留上次同步前两端快照；网络失败不更改本地整理数据与合并基线。
-        config.recovery = { local, remote };
-        await writeBookmarkData(configKey, config);
-        if (JSON.stringify(merged) !== JSON.stringify(remote)) {
-          // ponytail: Gist 写入非原子；多设备高并发时需改用支持条件写入的后端。
-          const latest = await requestBookmarkGist(config, "GET");
-          if (JSON.stringify(readBookmarkGist(latest, user.id)) !== JSON.stringify(remote)) throw new Error("云端刚刚发生变化，请重新同步");
-          await requestBookmarkGist(config, "PATCH", encode(merged));
-        }
-        const verified = readBookmarkGist(await requestBookmarkGist(config, "GET"), user.id);
-        if (JSON.stringify(verified) !== JSON.stringify(merged)) throw new Error("同步期间云端被其他设备修改，请重新同步；本地数据已保留");
-        await assertBookmarkAccount(user, token);
-        await writeBookmarkData(key, merged);
-        b.data = merged;
-        config.base = merged;
-        config.lastSync = new Date().toISOString();
-        await writeBookmarkData(configKey, config);
       });
+    }
+
+    function renderBookmarkSyncState(config) {
+      const b = state.bookmarks, form = b.dialog?.querySelector(".ld-bookmark-sync");
+      b.autoSyncMessage = config?.autoSync && config.autoSyncError ? `自动同步已暂停：${config.autoSyncError}。请到 Gist 同步中手动同步后恢复。` : "";
+      if (!form) return;
+      form.elements.autoSync.checked = config?.autoSync === true;
+      form.elements.autoSync.disabled = !config?.lastSync || !config.token || !config.gistId;
+      const status = form.querySelector(".ld-bookmark-auto-status");
+      status.textContent = b.autoSyncMessage || (form.elements.autoSync.disabled ? "请先手动同步一次，再开启自动同步。" : "");
+      status.hidden = !status.textContent;
+      form.querySelector(".ld-bookmark-sync-last").textContent = config?.lastSync ? `上次同步：${new Date(config.lastSync).toLocaleString()}` : "尚未同步";
+    }
+
+    function scheduleBookmarkAutoSync(delay = 30000) {
+      const b = state.bookmarks;
+      clearTimeout(b.autoSyncTimer);
+      if (state.settings.enhancedBookmarks === "off" || state.previewPageHidden || document.hidden) return;
+      // ponytail: 页面定时器不在关页后运行；需要关页同步时再引入扩展后台调度。
+      b.autoSyncTimer = setTimeout(runBookmarkAutoSync, delay);
+    }
+
+    async function runBookmarkAutoSync() {
+      const b = state.bookmarks;
+      if (state.settings.enhancedBookmarks === "off" || state.previewPageHidden || document.hidden) return;
+      if (b.busy || b.loading || b.refreshController || b.confirmation || b.pickerTarget ||
+          (b.dialog?.open && b.dialog.querySelector(".ld-bookmark-editor:not([hidden]), .ld-bookmark-sync:not([hidden]), .ld-bookmark-folder-form:not([hidden]), .ld-bookmark-folder-rename"))) {
+        scheduleBookmarkAutoSync();
+        return;
+      }
+      b.busy = true;
+      let synced = false, accountChanged = false;
+      try {
+        const token = getCsrfToken();
+        if (!token || !document.querySelector("#current-user")) return;
+        if (b.autoSyncPaused && (!b.user || b.token === token)) return;
+        if (!b.user || b.token !== token) {
+          const user = await fetchBookmarkUser();
+          if (token !== getCsrfToken() || state.previewPageHidden) return;
+          b.user = user;
+          b.token = token;
+          b.verified = true;
+          b.complete = false;
+          b.items = [];
+          b.data = null;
+          b.autoSyncPaused = false;
+          b.autoSyncMessage = "";
+          accountChanged = true;
+        }
+        if (!b.autoSyncPaused) synced = await syncBookmarkGist(null, true);
+      } catch (error) {
+        b.autoSyncPaused = true;
+        b.autoSyncMessage = `自动同步已暂停：${error.message || "读取失败"}。请到 Gist 同步中手动同步后恢复。`;
+      } finally {
+        b.busy = false;
+        if (b.dialog?.open) {
+          if (synced || accountChanged || !b.verified) renderBookmarkList();
+          else renderBookmarkStatus();
+        }
+        scheduleBookmarkAutoSync();
+      }
     }
 
     async function openBookmarkSync() {
@@ -8143,7 +8266,7 @@
         form.elements.token.value = "";
         form.querySelector(".ld-bookmark-token-status").textContent = config?.token ? "已保存；无需重复填写" : "尚未配置 Token";
         form.elements.gistId.value = config?.gistId || "";
-        form.querySelector(".ld-bookmark-sync-last").textContent = config?.lastSync ? `上次同步：${new Date(config.lastSync).toLocaleString()}` : "尚未同步";
+        renderBookmarkSyncState(config);
         b.dialog.querySelector(".ld-bookmark-browse").hidden = true;
         form.hidden = false;
       }, "配置仅存本机；每台设备配置后点击同步");
@@ -8241,7 +8364,18 @@
         await assertBookmarkAccount(user, token, true);
         await writeBookmarkData(key, next);
         b.data = next;
+        try {
+          const configKey = `ld-bookmarks-gist:${user.id}`, config = await readBookmarkData(configKey);
+          if (config?.autoSync) {
+            config.autoSyncAt = Date.now() + 30000;
+            await writeBookmarkData(configKey, config);
+          }
+        } catch {
+          b.autoSyncPaused = true;
+          b.autoSyncMessage = "整理已保存，自动同步排程失败；请手动同步后恢复。";
+        }
       });
+      scheduleBookmarkAutoSync();
     }
 
     function closeBookmarkPicker(restoreFocus = false) {
@@ -8347,6 +8481,8 @@
         if (controller.signal.aborted) return;
         if (!token || token !== getCsrfToken()) throw new Error("登录状态已变化，请刷新主题后重试");
         if (b.user?.id !== user.id || b.token !== token) {
+          b.autoSyncPaused = false;
+          b.autoSyncMessage = "";
           b.items = [];
           b.complete = false;
           b.folder = "*";
@@ -8424,8 +8560,12 @@
         closeBookmarkPanel(false);
         b.returnToList = false;
         clearTimeout(b.refreshTimer);
+        clearTimeout(b.autoSyncTimer);
         b.refreshController?.abort();
-      } else scheduleBookmarkRefresh();
+      } else {
+        scheduleBookmarkRefresh();
+        scheduleBookmarkAutoSync();
+      }
       const header = state.root?.querySelector(".ld-topic-bookmark");
       if (header) header.hidden = !enabled || !header.querySelector("button");
       for (const button of state.root?.querySelectorAll("[data-bookmark-post-id]") || []) {
@@ -8479,7 +8619,7 @@
       }
     }
 
-    function confirmBookmarkAction(message, actionLabel = "确定") {
+    function confirmBookmarkAction(message, actionLabel = "确定", { title = "请确认操作", alternateLabel = "" } = {}) {
       const b = state.bookmarks;
       if (b.confirmation) return Promise.resolve(false);
       const dialog = document.createElement("dialog");
@@ -8487,15 +8627,23 @@
       dialog.setAttribute("aria-labelledby", "ld-bookmark-confirm-title");
       dialog.setAttribute("aria-describedby", "ld-bookmark-confirm-message");
       dialog.innerHTML = '<h3 id="ld-bookmark-confirm-title">请确认操作</h3><p id="ld-bookmark-confirm-message"></p><form method="dialog"><button value="cancel" autofocus>取消</button><button value="confirm" class="ld-bookmark-primary"></button></form>';
+      dialog.querySelector("h3").textContent = title;
       dialog.querySelector("p").textContent = message;
       dialog.querySelector('[value="confirm"]').textContent = actionLabel;
+      if (alternateLabel) {
+        const alternate = document.createElement("button");
+        alternate.value = "alternate";
+        alternate.textContent = alternateLabel;
+        dialog.querySelector("form").append(alternate);
+        dialog.classList.add("ld-bookmark-conflict");
+      }
       b.confirmation = dialog;
       document.body.append(dialog);
       return new Promise(resolve => {
         dialog.addEventListener("close", () => {
           b.confirmation = null;
           dialog.remove();
-          resolve(dialog.returnValue === "confirm");
+          resolve(alternateLabel && dialog.returnValue === "alternate" ? "alternate" : dialog.returnValue === "confirm");
         }, { once: true });
         dialog.addEventListener("click", event => { if (event.target === dialog) dialog.close(); });
         dialog.showModal();
@@ -8580,6 +8728,9 @@
                   </div>
                   <input id="ld-bookmark-sync-id" name="gistId" autocomplete="off" maxlength="40" placeholder="首次留空，其他设备填相同 ID">
                 </div>
+                <label class="ld-bookmark-auto-toggle"><input name="autoSync" type="checkbox" aria-describedby="ld-bookmark-auto-help">自动同步</label>
+                <p id="ld-bookmark-auto-help">变更后约 30 秒同步，每 30 分钟检查云端；仅 L 站页面可见时运行，冲突或失败暂停。</p>
+                <p class="ld-bookmark-auto-status" role="status"></p>
                 <p class="ld-bookmark-sync-last"></p>
                 <div class="ld-bookmark-edit-actions"><button type="submit" class="ld-bookmark-primary">保存并同步</button><button type="button" data-bookmark-action="disconnect-sync">断开同步</button><button type="button" data-bookmark-action="export-recovery">导出同步前备份</button></div>
               </fieldset>
@@ -8707,6 +8858,26 @@
       });
       folders.addEventListener("dragend", () => { draggedFolder = ""; clearDropHint(); });
       dialog.querySelector(".ld-bookmark-sort").addEventListener("change", renderBookmarkList);
+      dialog.querySelector('[name="autoSync"]').addEventListener("change", event => {
+        const checkbox = event.currentTarget, enabled = checkbox.checked;
+        runBookmarkAction(async () => {
+          try {
+            const user = b.user, token = b.token;
+            await navigator.locks.request(`ld-bookmarks-v1:${user.id}`, async () => {
+              await assertBookmarkAccount(user, token, true);
+              const key = `ld-bookmarks-gist:${user.id}`, config = await readBookmarkData(key);
+              if (!config?.token || !config.gistId || !config.lastSync) throw new Error("请先手动同步一次，再开启自动同步");
+              config.autoSync = enabled;
+              config.autoSyncError = "";
+              config.autoSyncAt = Date.now() + 30000;
+              await writeBookmarkData(key, config);
+              b.autoSyncPaused = false;
+              renderBookmarkSyncState(config);
+            });
+            scheduleBookmarkAutoSync();
+          } catch (error) { checkbox.checked = !enabled; throw error; }
+        }, enabled ? "已开启自动同步；设置仅保存到本机" : "已关闭自动同步，仍可手动同步");
+      });
       dialog.querySelector(".ld-bookmark-sync").addEventListener("submit", async event => {
         event.preventDefault();
         const fields = event.currentTarget.elements;
@@ -8720,7 +8891,7 @@
           fields.token.value = "";
           b.dialog.querySelector(".ld-bookmark-token-status").textContent = "已保存；无需重复填写";
           b.dialog.querySelector(".ld-bookmark-sync-last").textContent = `上次同步：${new Date().toLocaleString()}`;
-        }, "已同步分类、标签和备注；其他设备请点击同步获取更新");
+        }, "已同步分类、标签和备注；其他设备可手动同步或开启自动同步");
       });
       dialog.querySelector(".ld-bookmark-folder-form").addEventListener("submit", event => {
         event.preventDefault();
@@ -8863,6 +9034,8 @@
         if (token !== getCsrfToken()) throw new Error("登录状态已变化，请重新打开收藏");
         const changed = b.user?.id !== user.id || b.token !== token;
         if (changed) {
+          b.autoSyncPaused = false;
+          b.autoSyncMessage = "";
           b.items = [];
           b.complete = false;
           b.data = null;
@@ -8974,8 +9147,8 @@
 
     function renderBookmarkStatus() {
       const b = state.bookmarks, dialog = b.dialog;
-      dialog.querySelector(".ld-bookmark-status").textContent = b.message ||
-        (b.skipped ? `另有 ${b.skipped} 条收藏，请到原站查看` : "收藏与 L 站同步 · 整理数据可通过 Gist 手动同步");
+      dialog.querySelector(".ld-bookmark-status").textContent = b.autoSyncMessage || b.message ||
+        (b.skipped ? `另有 ${b.skipped} 条收藏，请到原站查看` : "收藏与 L 站同步 · 整理数据可通过 Gist 同步");
       dialog.querySelector(".ld-bookmark-total").textContent = b.verified && b.complete ? b.items.length : "";
       dialog.querySelector(".ld-bookmark-tools").disabled = b.loading || b.busy || !b.complete || !b.data;
       dialog.querySelector(".ld-bookmark-tools").hidden = !b.verified;
@@ -9319,7 +9492,10 @@
           form.reset();
           clearBookmarkSyncInput();
           form.querySelector(".ld-bookmark-token-status").textContent = "尚未配置 Token";
+          b.autoSyncPaused = false;
+          renderBookmarkSyncState(null);
           form.querySelector(".ld-bookmark-sync-last").textContent = "已断开同步";
+          clearTimeout(b.autoSyncTimer);
         }, "已清除本机同步配置，云端数据保留");
       }
       if (action === "refresh" && await closeBookmarkEditor()) openBookmarkPanel("", true, b.compact);

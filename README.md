@@ -25,19 +25,26 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v1.0.0
+## 下载与安装 · v1.0.1
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linux-do-sidepeek-1.0.0-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linux-do-sidepeek-1.0.0-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.0/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.1/linux-do-sidepeek-1.0.1-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.1/linux-do-sidepeek-1.0.1-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.0.1/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.0.0) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.0.1) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 1.0.1 版本更新摘要
+
+- Gist 冲突可选“以本机为准 / 以云端为准 / 取消”，仅对冲突字段选边，其他修改继续合并，覆盖前保存两端快照。
+- 新增可选自动同步：默认关闭，手动同步成功后开启；整理变更后约 30 秒同步，每 30 分钟检查云端。
+- 自动任务仅在 L 站页面可见时运行，编辑时延后，关闭页面后不运行；冲突或失败暂停、不弹窗，手动成功后恢复。
+- 扩展与油猴同步更新，无新增权限；多设备同时写入仍需注意 Gist 的非原子覆盖风险。
 
 ## 1.0.0 版本更新摘要
 
@@ -108,8 +115,9 @@
 - “管理面板”打开详细管理页，点击弹窗外可关闭，条目上的“分类与备注”可编辑标签和备注；取消原站收藏直接执行，不再确认。未保存退出、删除收藏夹及 Gist 操作使用与界面一致的确认框，支持 Esc 取消。删除收藏夹只移到未分类，不删除原站书签；取消原站收藏后本机整理信息仍保留。
 - 侧栏设置可关闭“增强收藏”：隐藏收藏悬浮入口及标题增强按钮，楼层按钮恢复直接收藏/取消，停止自动刷新，整理数据保留。列表使用当前页面会话内一小时缓存，到期后台刷新，后台标签页或编辑期间延后；刷新页面重新读取。新增/取消收藏后更新缓存，也可手动刷新。分类新建、拖拽、改名及备注只写本机，不逐次请求账号接口；已验证会话内悬停/重开直接展示缓存，不清空列表、不请求账号。首次打开、CSRF 变化、登录标记消失、缓存失效或手动刷新时重新联网校验；仅服务端变化而页面会话标记未变时，由下一次刷新发现。
 - 原站收藏通过 `/u/{用户名}/bookmarks.json?page=N` 分页读取，先用 `/session/current.json` 确认账号。详细管理页的“更多”可导出/导入备份。整理数据按 L 站账号隔离：扩展使用 `chrome.storage.local`，油猴使用脚本管理器存储。JSON 只备份分类、标签和备注；仅允许当前账号合并导入，本机已有信息优先，不自动创建原站书签。暂无正文/图片归档。
-- Gist 手动同步：管理面板 → 更多 → Gist 同步，在行内密码框填写带 `gist` 权限的 GitHub Token；字段旁的问号提供申请入口和 ID 使用说明，支持悬停、键盘及手机点击。已保存的 Token 不回填，留空沿用，保存成功或退出后清空输入；页面内输入仍可能被原站脚本读取。首次 Gist ID 留空会询问并创建非公开 Gist。其他设备使用同一 L 站账号、同一 Gist ID 与有读写权限的 Token，点击“保存并同步”。扩展和油猴可共用；不会后台自动上传，原站收藏本身仍由 L 站同步。
-- Gist 仅保存分类（含顺序）、标签和备注，按字段与上次同步快照合并；冲突停止而不静默选边，请先备份并将两端冲突项改为一致。同步前本机快照可导出。Token 仅存本机、不进入导出；非公开 Gist **不加密**，持有链接的人可能读取，勿放敏感备注。断开仅清除本机配置，不删除云端 Gist。同步上限 900 KB；拒绝截断、公开或其他 L 站账号的 Gist。请避免多设备同时点击同步：写入前后会复查，但 Gist 不提供本实现可依赖的跨设备原子锁，仍存在极短并发覆盖窗口；必要时从 Gist 历史或同步前备份恢复。
+- Gist 同步：管理面板 → 更多 → Gist 同步，在行内密码框填写带 `gist` 权限的 GitHub Token；字段旁的问号提供申请入口和 ID 使用说明，支持悬停、键盘及手机点击。已保存的 Token 不回填，留空沿用，保存成功或退出后清空输入；页面内输入仍可能被原站脚本读取。首次 Gist ID 留空会询问并创建非公开 Gist。其他设备使用同一 L 站账号、同一 Gist ID 与有读写权限的 Token，点击“保存并同步”。扩展和油猴可共用，原站收藏本身仍由 L 站同步。
+- 自动同步默认关闭。手动同步成功后，可勾选“自动同步”（即时保存，按账号/设备配置）：分类、排序、标签或备注变更后约 30 秒合并同步，每 30 分钟检查云端。仅在 L 站页面打开且可见时运行；后台、编辑或配置期间延后，回到页面补查，关闭页面后不运行。多标签页通过本机锁及持久化时间去重；自动任务不会新建 Gist。冲突或失败时暂停并提示，不弹出选择框、不自动重试写入；手动同步成功后恢复。关闭开关、断开 Gist 或关闭增强收藏可停止自动任务；已发出的请求无法撤回。
+- Gist 仅保存分类（含顺序）、标签和备注，按字段与上次同步快照合并；冲突时可选“以本机为准 / 以云端为准 / 取消”，本次冲突字段按所选端处理，非冲突修改继续合并，无需手动将两端改为一致。覆盖前在本机保存两端快照，其中本机快照可导出；取消不覆盖数据，也不更新同步基线和时间。Token 仅存本机、不进入导出；非公开 Gist **不加密**，持有链接的人可能读取，勿放敏感备注。断开仅清除本机配置，不删除云端 Gist。同步上限 900 KB；拒绝截断、公开或其他 L 站账号的 Gist。请避免多设备同时点击同步：写入前后会复查，但 Gist 不提供本实现可依赖的跨设备原子锁，仍存在极短并发覆盖窗口；必要时从 Gist 历史或同步前备份恢复。
 - 收藏整理数据上限为 4 MB；最多 200 个收藏夹、10000 条整理记录，每条最多 20 个标签和 2000 字备注。扩展新增 `storage` 权限，更新本地扩展后需重新加载并刷新 L 站页面。真实登录收藏接口尚待在线验证。
 - 智能预览优先复用原站正文组件与样式（不使用 iframe），支持原站轮播等正文装饰；正文组件不可用时回退现有智能渲染。接入依赖 Discourse 内部模块，网站升级可能触发回退。原站图片放大沿用站点交互。
 - 楼层统计与操作合为一排，以 `|` 分隔，不再显示楼层阅读量。表情汇总可点击选择、切换或取消反应。

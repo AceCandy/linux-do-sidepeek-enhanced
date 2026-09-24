@@ -149,7 +149,7 @@ bash scripts/agent-smoke.sh --cdp-port 9222
 - 状态面板回归：`node scripts/check-status.cjs`；带固定页面浏览器验证：`node scripts/check-status.cjs --browser`（需要 agent-browser，会自行关闭测试浏览器）。状态功能修改需同步独立油猴发行版。
 - 收藏管理回归：`node scripts/check-bookmarks.cjs`；固定页面交互：`node scripts/check-bookmarks.cjs --browser`（自行关闭测试浏览器）。原生书签保存在站点，分类/标签/备注按用户 ID 保存到扩展 storage 或油猴 GM 存储；两个收藏存储适配函数同设置适配一起由生成器替换。导入只合并同账号整理数据，不调用原站写入接口。
 - 收藏默认入口位于等级下方，复用同一 dialog 的非模态紧凑模式；“管理面板”才切为模态。悬停不得抢焦点，预览返回需保留原模式。收藏夹选择器使用原生 popover，切帖/关闭/pagehide 清理；原站成功、本机分类失败时不得误报整体成功或重试重复创建书签。
-- Gist 手动同步回归：`node scripts/check-gist.cjs`。只同步整理数据，Token 按账号保存在本机独立配置键，不进入备份；按同步基线逐字段合并，冲突停止。Gist 无跨设备原子锁，不得宣称完全消除并发覆盖；保存同步前快照，禁止自动重试创建/写入。公共逻辑修改后重新生成油猴。
+- Gist 同步回归：`node scripts/check-gist.cjs`。只同步整理数据，Token 按账号保存在本机独立配置键，不进入备份；按同步基线逐字段合并，手动冲突由用户选本机/云端，非冲突字段保留，取消不覆盖数据或更新基线。自动同步默认关闭，手动配置成功后单独开启；仅可见 L 站页面运行，变更约 30 秒防抖、30 分钟检查云端，编辑/配置延后。账号锁内重读开关和持久化到期时间以协调标签页；自动冲突/失败持久暂停、不弹窗，手动成功恢复，不自动创建 Gist。关闭开关/增强收藏、断开或 pagehide 后不得发起新的自动写入，已发出的请求无法撤回。Gist 无跨设备原子锁，不得宣称完全消除并发覆盖；覆盖前保存两端快照，选择期间云端有变化仍须拦截，禁止自动重试创建/写入。公共逻辑修改后重新生成油猴。
 - 预取与阅读回归：`node scripts/check-preview.cjs`、`node scripts/check-preview-browser.cjs`；100 主题缓存回归：`node scripts/check-cache.cjs`。阅读上报只允许实际可见楼层，预取不得计入已读；同一任务中已确认的功能和参数应继续实现，不能因新增子功能而遗漏原有目标。
 
 ## JavaScript 代码风格

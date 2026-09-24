@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 
 const read = name => fs.readFileSync(path.join(__dirname, "..", name), "utf8");
 const source = read("src/content.js");
-const testSymbols = "state, normalizeBookmarkData, fetchAllBookmarks, updateBookmarkData, importBookmarkBackup, openBookmarkPanel, openDrawer, handlePostBookmark, buildPostCard, canTrackReading, assertBookmarkAccount, refreshBookmarkCache, scheduleBookmarkRefresh";
+const testSymbols = "state, normalizeBookmarkData, fetchAllBookmarks, updateBookmarkData, importBookmarkBackup, openBookmarkPanel, openDrawer, handlePostBookmark, buildPostCard, canTrackReading, assertBookmarkAccount, refreshBookmarkCache, scheduleBookmarkRefresh, runBookmarkAutoSync";
 const instrument = (text, userscript = false) => text.replace(userscript ? /^    init\(\);$/m : /^  init\(\);$/m,
   `globalThis.bookmarkTest = { ${testSymbols} };`);
 
@@ -15,7 +15,8 @@ async function checkStorage(userscript) {
   let token = "test-session", userId = 7, failWrite = false, queue = Promise.resolve(), requests = 0;
   const context = {
     window: { addEventListener() {} }, unsafeWindow: {}, location: { href: "https://linux.do/latest", origin: "https://linux.do" },
-    localStorage: { getItem: () => null }, URL, AbortSignal, Response, TextEncoder, setTimeout: fn => setTimeout(fn, 0),
+    localStorage: { getItem: () => null }, URL, AbortSignal, Response, TextEncoder,
+    setTimeout: fn => fn.name === "runBookmarkAutoSync" ? 0 : setTimeout(fn, 0), clearTimeout,
     document: { addEventListener() {}, querySelector: () => ({ getAttribute: () => token }), createElement: () => ({}), head: { appendChild() {} } },
     navigator: { locks: { request: (key, fn) => { const result = queue.then(fn); queue = result.catch(() => {}); return result; } } },
     chrome: { storage: { local: {
@@ -344,7 +345,8 @@ function checkBrowser() {
     wait("!bookmarkTest.state.bookmarks.busy");
     assert.equal(evaluate("storedBookmarks['ld-bookmarks-v1:7'].items['Post:123'].folder").trim(), '"生活指南"');
     assert.equal(evaluate("document.querySelector('.ld-bookmark-folder-chip').textContent.startsWith('收藏夹 · ') && document.querySelector('.ld-bookmark-tag-chip').textContent.startsWith('# ')").trim(), "true");
-    evaluate(`window.GM_xmlhttpRequest=options=> {
+    evaluate(`window.gistMethods=[]; window.GM_xmlhttpRequest=options=> {
+      gistMethods.push(options.method);
       if(options.method==='POST') window.testGist={id:'b'.repeat(32),public:false,files:JSON.parse(options.data).files};
       if(options.method==='PATCH') window.testGist.files=JSON.parse(options.data).files;
       options.onload({status:200,responseText:JSON.stringify(window.testGist)});
@@ -352,6 +354,7 @@ function checkBrowser() {
     run(["click", '.ld-bookmark-more summary']);
     run(["click", '[data-bookmark-action="sync-settings"]']);
     wait("!bookmarkTest.state.bookmarks.busy && !document.querySelector('.ld-bookmark-sync').hidden");
+    assert.equal(evaluate("!document.querySelector('[name=autoSync]').checked && document.querySelector('[name=autoSync]').disabled").trim(), "true", "首次配置默认关闭且不能自动创建 Gist");
     evaluate("window.prompt=()=> { throw Error('Token 不应使用原生输入框'); }");
     assert.equal(evaluate("document.querySelector('#ld-bookmark-sync-token').type==='password' && !document.querySelector('.ld-bookmark-sync [data-bookmark-action=\"cancel-edit\"]') && !document.querySelector('.ld-bookmark-sync details')").trim(), "true");
     run(["focus", '#ld-bookmark-sync-token']);
@@ -384,6 +387,99 @@ function checkBrowser() {
     run(["click", '.ld-bookmark-sync button[type="submit"]']);
     wait("!bookmarkTest.state.bookmarks.busy");
     assert.equal(evaluate("document.querySelector('.ld-bookmark-status').textContent.startsWith('已同步')").trim(), "true");
+    evaluate(`window.seedGistConflict=()=> {
+      const config=storedBookmarks['ld-bookmarks-gist:7'], key='Post:23025637';
+      config.base.items[key]={folder:'',tags:[],note:''};
+      const local=structuredClone(config.base), remote=structuredClone(config.base);
+      local.items[key]={folder:'技术笔记',tags:[],note:'本机独立备注'};
+      remote.items[key]={folder:'生活指南',tags:['云端独立标签'],note:''};
+      storedBookmarks['ld-bookmarks-v1:7']=local;
+      const cloud=JSON.parse(testGist.files['sidepeek-bookmarks.json'].content); cloud.data=remote;
+      testGist.files['sidepeek-bookmarks.json'].content=JSON.stringify(cloud);
+      window.beforeConflict={local,remote,storage:JSON.stringify(storedBookmarks),cloud:JSON.stringify(testGist),last:document.querySelector('.ld-bookmark-sync-last').textContent};
+    }; seedGistConflict()`);
+    run(["click", '.ld-bookmark-sync button[type="submit"]']);
+    wait("!!document.querySelector('#ld-bookmark-confirm.ld-bookmark-conflict[open]')");
+    assert.equal(evaluate("document.querySelector('#ld-bookmark-confirm-title').textContent==='解决同步冲突' && document.activeElement.value==='cancel'").trim(), "true");
+    screenshot("bookmarks-gist-conflict-desktop.png");
+    evaluate("document.documentElement.style.cssText='--primary:#e4e7ec;--secondary:#1d232a;--primary-low:#353e47;--tertiary:#79c7b2;color-scheme:dark'");
+    screenshot("bookmarks-gist-conflict-dark.png");
+    evaluate("document.documentElement.style.cssText=''");
+    run(["set", "viewport", "390", "700"]);
+    screenshot("bookmarks-gist-conflict-mobile.png");
+    assert.equal(evaluate("[...document.querySelectorAll('#ld-bookmark-confirm button')].every(button=>{const r=button.getBoundingClientRect();return r.width>80 && r.left>=0 && r.right<=innerWidth && r.bottom<=innerHeight;})").trim(), "true");
+    run(["press", "Escape"]);
+    wait("!bookmarkTest.state.bookmarks.busy && !document.querySelector('#ld-bookmark-confirm')");
+    assert.equal(evaluate("JSON.stringify(storedBookmarks)===beforeConflict.storage && JSON.stringify(testGist)===beforeConflict.cloud && document.querySelector('.ld-bookmark-sync-last').textContent===beforeConflict.last && !document.querySelector('.ld-bookmark-sync').hidden && document.querySelector('.ld-bookmark-status').textContent.includes('已取消同步')").trim(), "true");
+    run(["set", "viewport", "1280", "900"]);
+    run(["click", '.ld-bookmark-sync button[type="submit"]']);
+    answer(false);
+    wait("!bookmarkTest.state.bookmarks.busy");
+    assert.equal(evaluate("JSON.stringify(storedBookmarks)===beforeConflict.storage && JSON.stringify(testGist)===beforeConflict.cloud").trim(), "true");
+    for (const choice of ["confirm", "alternate"]) {
+      evaluate("seedGistConflict()");
+      run(["click", '.ld-bookmark-sync button[type="submit"]']);
+      wait("!!document.querySelector('#ld-bookmark-confirm[open]')");
+      run(["focus", `#ld-bookmark-confirm [value="${choice}"]`]);
+      run(["press", "Enter"]);
+      wait("!bookmarkTest.state.bookmarks.busy && !document.querySelector('#ld-bookmark-confirm')");
+      assert.equal(evaluate(`(() => {
+        const data=storedBookmarks['ld-bookmarks-v1:7'], item=data.items['Post:23025637'];
+        return item.folder===${JSON.stringify(choice === "confirm" ? "技术笔记" : "生活指南")} &&
+          item.note==='本机独立备注' && item.tags[0]==='云端独立标签' &&
+          JSON.stringify(data)===JSON.stringify(JSON.parse(testGist.files['sidepeek-bookmarks.json'].content).data) &&
+          JSON.stringify(storedBookmarks['ld-bookmarks-gist:7'].recovery)===JSON.stringify({local:beforeConflict.local,remote:beforeConflict.remote}) &&
+          document.querySelector('.ld-bookmark-status').textContent.startsWith('已同步');
+      })()`).trim(), "true");
+    }
+    console.log("浏览器：Gist 冲突本机/云端选边、独立字段保留、两端快照、取消/Esc 不覆盖、键盘和手机弹窗通过");
+    evaluate("window.beforeAutoRequests=gistMethods.length");
+    run(["check", '[name="autoSync"]']);
+    wait("!bookmarkTest.state.bookmarks.busy");
+    assert.equal(evaluate("storedBookmarks['ld-bookmarks-gist:7'].autoSync===true && gistMethods.length===beforeAutoRequests && document.querySelector('.ld-bookmark-auto-status').hidden").trim(), "true");
+    screenshot("bookmarks-gist-auto-desktop.png");
+    evaluate("document.documentElement.style.cssText='--primary:#e4e7ec;--secondary:#1d232a;--primary-low:#353e47;--tertiary:#79c7b2;color-scheme:dark'");
+    screenshot("bookmarks-gist-auto-dark.png");
+    evaluate("document.documentElement.style.cssText=''");
+    run(["set", "viewport", "390", "700"]);
+    screenshot("bookmarks-gist-auto-mobile.png");
+    assert.equal(evaluate("(() => { const r=document.querySelector('[name=autoSync]').getBoundingClientRect(); return r.width===18 && r.left>=0 && r.right<=innerWidth; })()").trim(), "true", "checkbox 不受原站固定输入框宽度干扰");
+    run(["set", "viewport", "1280", "900"]);
+    evaluate("storedBookmarks['ld-bookmarks-gist:7'].autoSyncAt=Date.now()-1; bookmarkTest.runBookmarkAutoSync()");
+    assert.equal(evaluate("gistMethods.length===beforeAutoRequests").trim(), "true", "配置中不自动同步");
+    run(["press", "Escape"]);
+    evaluate(`(async()=>{
+      await bookmarkTest.updateBookmarkData(data=>{data.items['Post:23025637'].note='自动本机备注';});
+      const cloud=JSON.parse(testGist.files['sidepeek-bookmarks.json'].content);
+      cloud.data.items['Post:23025637'].tags=['自动云端标签'];
+      testGist.files['sidepeek-bookmarks.json'].content=JSON.stringify(cloud);
+      storedBookmarks['ld-bookmarks-gist:7'].autoSyncAt=Date.now()-1;
+      await bookmarkTest.runBookmarkAutoSync();
+    })()`);
+    assert.equal(evaluate("storedBookmarks['ld-bookmarks-v1:7'].items['Post:23025637'].note==='自动本机备注' && storedBookmarks['ld-bookmarks-v1:7'].items['Post:23025637'].tags[0]==='自动云端标签' && !document.querySelector('#ld-bookmark-confirm') && !storedBookmarks['ld-bookmarks-gist:7'].autoSyncError").trim(), "true");
+    evaluate("seedGistConflict(); storedBookmarks['ld-bookmarks-gist:7'].autoSyncAt=Date.now()-1; bookmarkTest.runBookmarkAutoSync()");
+    assert.equal(evaluate("storedBookmarks['ld-bookmarks-gist:7'].autoSyncError.includes('同步冲突') && document.querySelector('.ld-bookmark-status').textContent.includes('自动同步已暂停') && !document.querySelector('#ld-bookmark-confirm') && JSON.stringify(testGist)===beforeConflict.cloud && JSON.stringify(storedBookmarks['ld-bookmarks-v1:7'])===JSON.stringify(beforeConflict.local)").trim(), "true");
+    run(["click", '.ld-bookmark-more summary']);
+    run(["click", '[data-bookmark-action="sync-settings"]']);
+    wait("!bookmarkTest.state.bookmarks.busy && !document.querySelector('.ld-bookmark-sync').hidden");
+    assert.equal(evaluate("document.querySelector('[name=autoSync]').checked && document.querySelector('.ld-bookmark-auto-status').textContent.includes('已暂停')").trim(), "true");
+    screenshot("bookmarks-gist-auto-paused.png");
+    run(["set", "viewport", "390", "700"]);
+    screenshot("bookmarks-gist-auto-paused-mobile.png");
+    run(["set", "viewport", "1280", "900"]);
+    run(["click", '.ld-bookmark-sync button[type="submit"]']);
+    answer();
+    wait("!bookmarkTest.state.bookmarks.busy");
+    assert.equal(evaluate("!storedBookmarks['ld-bookmarks-gist:7'].autoSyncError && !bookmarkTest.state.bookmarks.autoSyncPaused && !bookmarkTest.state.bookmarks.autoSyncMessage").trim(), "true");
+    evaluate("window.failWrite=true");
+    run(["uncheck", '[name="autoSync"]']);
+    wait("!bookmarkTest.state.bookmarks.busy");
+    assert.equal(evaluate("document.querySelector('[name=autoSync]').checked && storedBookmarks['ld-bookmarks-gist:7'].autoSync").trim(), "true", "开关保存失败回退原状态");
+    evaluate("window.failWrite=false");
+    run(["uncheck", '[name="autoSync"]']);
+    wait("!bookmarkTest.state.bookmarks.busy");
+    assert.equal(evaluate("storedBookmarks['ld-bookmarks-gist:7'].autoSync===false").trim(), "true");
+    console.log("浏览器：自动同步开关持久化、默认关闭、配置延后、自动合并、冲突不弹窗、手动恢复与开关保存失败回退通过");
     run(["fill", '#ld-bookmark-sync-token', "unsaved_test_token"]);
     run(["press", "Escape"]);
     answer(false);
