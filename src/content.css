@@ -2300,7 +2300,8 @@ body.ld-native-header-layout .d-header > .wrap {
   gap: 20px;
 }
 
-#ld-drawer-root .ld-post-card {
+#ld-drawer-root .ld-post-card,
+#ld-drawer-root .ld-inline-post {
   min-width: 0;
   border: 1px solid var(--primary-low, rgba(15, 23, 42, 0.12));
   border-radius: 18px;
@@ -2486,8 +2487,10 @@ body.ld-native-header-layout .d-header > .wrap {
   white-space: nowrap;
 }
 
-/* reply-to-tab: chip shown above post body when the post replies to a specific post */
+/* 回复关系入口位于正文上方，点击就地展开父帖。 */
 #ld-drawer-root .ld-reply-to-tab {
+  width: auto;
+  overflow-wrap: anywhere;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2510,24 +2513,6 @@ body.ld-native-header-layout .d-header > .wrap {
   background: color-mix(in srgb, var(--tertiary, #3b82f6) 8%, transparent);
 }
 
-#ld-drawer-root .ld-reply-to-tab-icon {
-  width: 12px;
-  height: 12px;
-  display: inline-flex;
-  flex-shrink: 0;
-}
-
-#ld-drawer-root .ld-reply-to-tab-icon svg {
-  width: 12px;
-  height: 12px;
-}
-
-#ld-drawer-root .ld-reply-to-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 #ld-drawer-root .ld-post-info-item {
   display: inline-flex;
   align-items: center;
@@ -2544,6 +2529,7 @@ body.ld-native-header-layout .d-header > .wrap {
 }
 
 #ld-drawer-root .ld-post-info-item--replies-trigger {
+  width: auto;
   border: none;
   background: transparent;
   padding: 0;
@@ -2558,11 +2544,6 @@ body.ld-native-header-layout .d-header > .wrap {
 #ld-drawer-root .ld-post-info-item--replies-trigger:hover {
   color: var(--tertiary, #3b82f6);
   background: color-mix(in srgb, var(--tertiary, #3b82f6) 8%, transparent);
-}
-
-#ld-drawer-root .ld-post-info-item--replies-trigger:disabled {
-  cursor: wait;
-  opacity: 0.72;
 }
 
 #ld-drawer-root .ld-post-replies-popover {
@@ -2584,20 +2565,6 @@ body.ld-native-header-layout .d-header > .wrap {
 
 #ld-drawer-root .ld-post-replies-popover[hidden] {
   display: none !important;
-}
-
-#ld-drawer-root .ld-post-replies-popover-empty,
-#ld-drawer-root .ld-post-replies-popover-hint {
-  padding: 10px 14px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--primary-medium, rgba(15, 23, 42, 0.55));
-}
-
-#ld-drawer-root .ld-post-replies-popover-hint {
-  border-bottom: 1px solid var(--primary-low, rgba(15, 23, 42, 0.10));
-  margin-bottom: 4px;
-  padding-bottom: 8px;
 }
 
 #ld-drawer-root .ld-post-reply-preview-row {
@@ -2650,17 +2617,72 @@ body.ld-native-header-layout .d-header > .wrap {
   color: var(--primary-medium, rgba(15, 23, 42, 0.68));
 }
 
-#ld-drawer-root .ld-post-info-icon {
-  width: 13px;
-  height: 13px;
-  display: inline-flex;
+#ld-drawer-root .ld-post-replies-popover > .ld-inline-status { padding: 8px 14px; }
+#ld-drawer-root .ld-post-replies-popover > button {
+  width: auto;
+  margin: 6px 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--primary-low, #dfe5e4);
+  border-radius: 8px;
+  background: var(--secondary, #fff);
+  color: var(--tertiary, #3b82f6);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#ld-drawer-root .ld-inline-thread {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 12px 16px 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--tertiary, #3b82f6);
+}
+
+#ld-drawer-root .ld-inline-thread[hidden] { display: none !important; }
+
+/* 深层回复保持同一宽度，避免手机正文逐层缩窄。 */
+#ld-drawer-root .ld-inline-post .ld-inline-thread {
+  margin: 12px 0 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+#ld-drawer-root .ld-inline-post {
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+#ld-drawer-root .ld-inline-status {
+  margin: 0;
+  color: var(--primary-medium, #64748b);
+  font-size: 12px;
+}
+
+#ld-drawer-root .ld-inline-thread > button,
+#ld-drawer-root .ld-inline-locate {
+  width: auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--primary-low, #dfe5e4);
+  border-radius: 8px;
+  background: var(--secondary, #fff);
+  color: var(--tertiary, #3b82f6);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#ld-drawer-root .ld-inline-locate {
+  margin-left: auto;
   flex-shrink: 0;
 }
 
-#ld-drawer-root .ld-post-info-icon svg {
-  width: 13px;
-  height: 13px;
-}
+#ld-drawer-root .ld-inline-post .ld-post-header { flex-wrap: wrap; gap: 8px; }
+#ld-drawer-root .ld-inline-post .ld-post-author { min-width: 0; }
+#ld-drawer-root .ld-inline-post .ld-post-avatar { width: 28px; height: 28px; }
+#ld-drawer-root .ld-reply-to-wrap .ld-inline-thread { margin-top: 0; }
 
 /* Small icon-only buttons: copy link, bookmark, flag */
 #ld-drawer-root .ld-post-icon-btn {
@@ -2767,9 +2789,10 @@ body.ld-native-header-layout .d-header > .wrap {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  max-width: min(260px, calc(100vw - 80px));
-  flex-wrap: wrap;
-  display: flex;
+  box-sizing: border-box;
+  width: min(260px, calc(100vw - 80px));
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
   padding: 6px 8px;
   background: var(--secondary, #fff);
@@ -2785,6 +2808,11 @@ body.ld-native-header-layout .d-header > .wrap {
 }
 
 #ld-drawer-root .ld-reaction-btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  font: inherit;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -2800,7 +2828,7 @@ body.ld-native-header-layout .d-header > .wrap {
 
 #ld-drawer-root .ld-reaction-btn:hover {
   background: color-mix(in srgb, var(--tertiary, #3b82f6) 12%, transparent);
-  transform: scale(1.25);
+  transform: scale(1.08);
 }
 
 #ld-drawer-root .ld-reaction-btn--active {
@@ -2880,8 +2908,7 @@ body.ld-native-header-layout .d-header > .wrap {
 }
 
 #ld-drawer-root .ld-reactions-popover:not([hidden]),
-#ld-drawer-root .ld-flag-popover:not([hidden]),
-#ld-drawer-root .ld-post-replies-popover:not([hidden]) {
+#ld-drawer-root .ld-flag-popover:not([hidden]) {
   animation: ld-popover-in 0.12s ease;
 }
 

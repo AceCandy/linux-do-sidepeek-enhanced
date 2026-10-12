@@ -12,6 +12,13 @@ const run = (args, input) => {
 const evaluate = (code) => run(["eval", "--stdin"], code);
 const source = fs.readFileSync(path.join(__dirname, "../src/content.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "../src/content.css"), "utf8");
+const reactionImages = {};
+if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
+  for (const id of ["heart", "+1", "laughing", "open_mouth", "clap", "confetti_ball", "hugs", "roll_eyes", "sob", "cat"]) {
+    const file = path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `${id}.png`);
+    if (fs.existsSync(file)) reactionImages[id] = `data:image/png;base64,${fs.readFileSync(file).toString("base64")}`;
+  }
+}
 const nativeSource = fs.readFileSync(path.join(__dirname, "../src/native-renderer.js"), "utf8");
 const html = '<!doctype html><meta charset="utf-8"><meta name="csrf-token" content="test-csrf"><title>预取与阅读固定页面</title><div id="current-user"></div>' +
   '<main id="main-outlet" style="margin:60px 300px">' + [1, 2, 3, 4, 5, 6].map(id =>
@@ -43,7 +50,7 @@ try {
     const style = document.createElement("style");
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic };")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic, REACTION_URL_CACHE };")}
   })()`);
   run(["wait", "--fn", "window.previewTest.state.topicCache.size === 6"]);
   console.log(evaluate(`(() => {
@@ -349,6 +356,60 @@ try {
     state.root.style.width = originalWidth;
     return '单排操作、表情展示/选择/切换/取消/失败恢复、320px 原生与回退代码横滚：通过';
   })()`).trim());
+  evaluate(`(async () => {
+    const {state, buildPostCard, REACTION_URL_CACHE} = previewTest;
+    const ids = ['heart','+1','laughing','open_mouth','clap','confetti_ball','hugs','roll_eyes','sob','cat'];
+    const emoji = ['❤️','👍','😆','😮','👏','🎊','🤗','🙄','😭','😺'];
+    const images = ${JSON.stringify(reactionImages)};
+    ids.forEach((id,i) => {
+      REACTION_URL_CACHE[id] = images[id] || 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><text x="16" y="26" text-anchor="middle" font-size="28">' + emoji[i] + '</text></svg>');
+    });
+    state.availableReactions = ids.map(id => ({id}));
+    const post = {id:987, post_number:1, username:'reaction-user', name:'表情选择布局',
+      cooked:'<p style="height:180px">点击楼层下方表情汇总，选择想要的回应。</p>',
+      reactions:[{id:'heart',count:3},{id:'open_mouth',count:1},{id:'roll_eyes',count:3}],
+      current_user_reaction:{id:'cat',can_undo:true},actions_summary:[]};
+    const card = buildPostCard(post);
+    const view = document.createElement('div'); view.className='ld-topic-view'; view.append(card);
+    state.drawerBody.replaceChildren(view); state.drawerBody.scrollTop=0;
+    card.querySelector('.ld-post-react-btn').click();
+    await new Promise(resolve => setTimeout(resolve,0));
+    const siteStyle=document.createElement('style');
+    siteStyle.textContent='button {width:280px;min-width:150px;margin:10px;font-size:20px}';
+    document.head.prepend(siteStyle);
+    window.reactionLayoutTest={card,siteStyle};
+    state.toastStack.replaceChildren();
+  })()`);
+  for (const width of [1280,390,320]) {
+    run(['set','viewport',String(width),'800']);
+    evaluate('document.head.prepend(reactionLayoutTest.siteStyle)');
+    console.log(evaluate(`(() => {
+      const card=reactionLayoutTest.card;
+      const panel=card.querySelector('.ld-reactions-popover');
+      const buttons=[...panel.querySelectorAll('.ld-reaction-btn')];
+      const rect=panel.getBoundingClientRect();
+      const root=previewTest.state.root.getBoundingClientRect();
+      if (buttons.length!==10 || buttons.some(button => !button.getClientRects().length)) throw Error('表情选项缺失');
+      const rows=new Map();
+      for (const button of buttons) {
+        const box=button.getBoundingClientRect();
+        const top=Math.round(box.top);
+        rows.set(top,(rows.get(top)||0)+1);
+        if (box.width<40 || box.height<44) throw Error('表情触控区域过小');
+      }
+      if (rows.size!==2 || [...rows.values()].some(count=>count!==5)) throw Error('表情没有排成五列两行');
+      if (rect.left<root.left || rect.right>root.right+1 || panel.scrollWidth>panel.clientWidth) throw Error('表情面板超出抽屉');
+      if (!card.querySelector('.ld-reaction-btn[title="cat"][aria-pressed="true"]') || card.querySelector('.ld-reaction-btn[title="heart"] .ld-reaction-btn-count').textContent!=='3') throw Error('已选状态或数量丢失');
+      return '表情五列两行、触控区域、原站按钮样式隔离与抽屉边界：通过（${width}px）';
+    })()`).trim());
+    evaluate('reactionLayoutTest.siteStyle.remove()');
+    if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(['screenshot',path.join(process.env.SIDEPEEK_SCREENSHOT_DIR,`reactions-${width}.png`)]);
+  }
+  evaluate("document.documentElement.style.cssText='--primary:#e2e8f0;--secondary:#17212b;--primary-low:#334155;--primary-medium:#94a3b8;--tertiary:#60a5fa;--love:#ef7187'; document.body.style.background='#17212b'");
+  run(['wait','--fn',"getComputedStyle(document.querySelector('.ld-reaction-btn-count')).color==='rgb(148, 163, 184)'"]);
+  if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(['screenshot',path.join(process.env.SIDEPEEK_SCREENSHOT_DIR,'reactions-dark.png')]);
+  evaluate("reactionLayoutTest.siteStyle.remove(); document.documentElement.style.cssText=''; document.body.style.background=''");
+  run(['set','viewport','1280','720']);
   console.log(evaluate(`(async () => {
     ${nativeSource}
     const { state, buildPostCard } = window.previewTest;

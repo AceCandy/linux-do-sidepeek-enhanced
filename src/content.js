@@ -13,8 +13,6 @@
   const SETTINGS_KEY = "ld-drawer-settings-v1";
   const LOAD_MORE_BATCH_SIZE = 20;
   const LOAD_MORE_TRIGGER_OFFSET = 240;
-  const DIRECT_REPLIES_MAX_BATCHES = 5;
-  const DIRECT_REPLIES_FALLBACK_BATCHES = 3;
   const TOPIC_CACHE_MAX_ENTRIES = 100;
   const TOPIC_CACHE_TTL = 10 * 60 * 1000;
   const TOPIC_CACHE_BACKGROUND_REFRESH_AGE = 30 * 1000;
@@ -30,6 +28,7 @@
     postBodyFontSize: 15,
     authorFilter: "all",
     replyOrder: "default",
+    replyDisplay: "inline",
     floatingReplyButton: "on",
     showTrustStatus: "on",
     enhancedBookmarks: "on",
@@ -167,8 +166,9 @@
     abortController: null,
     loadMoreAbortController: null,
     replyAbortController: null,
-    directRepliesAbortController: null,
+    inlineReplyControllers: new Map(),
     directReplyCache: new Map(),
+    replyParentCache: new Map(),
     topicCache: new Map(),
     prefetchObserver: null,
     prefetchObserved: new Set(),
@@ -522,6 +522,14 @@
                   <option value="latestFirst">首帖 + 最新回复</option>
                 </select>
                 <span class="ld-setting-hint">长帖下会优先显示最新一批回复，不代表把整帖一次性完整倒序</span>
+              </label>
+              <label class="ld-setting-field">
+                <span class="ld-setting-label">回复展示</span>
+                <select class="ld-setting-control" data-setting="replyDisplay">
+                  <option value="inline">楼中楼展开</option>
+                  <option value="legacy">原有摘要浮层</option>
+                </select>
+                <span class="ld-setting-hint">楼中楼可就地阅读正文；摘要浮层点击后定位对应楼层</span>
               </label>
               <label class="ld-setting-field">
                 <span class="ld-setting-label">悬浮回复入口</span>
@@ -1128,8 +1136,8 @@
     const left = Math.max(0, bounds.left);
     const right = Math.min(window.innerWidth, bounds.right);
     if (bottom <= top || right <= left) return visible;
-    for (const card of state.content.querySelectorAll(".ld-topic-post-list > .ld-post-card[data-post-number]")) {
-      const number = Number(card.dataset.postNumber);
+    for (const card of state.content.querySelectorAll(".ld-post-body[data-reading-post-number]")) {
+      const number = Number(card.dataset.readingPostNumber);
       const rect = card.getBoundingClientRect();
       const visibleTop = Math.max(top, rect.top);
       const visibleBottom = Math.min(bottom, rect.bottom);
@@ -1400,6 +1408,7 @@
     state.currentTopicFetchedAt = 0;
     state.drawerBody.scrollTop = 0;
     state.directReplyCache.clear();
+    state.replyParentCache.clear();
     state.deferOwnerFilterAutoLoad = false;
     state.loadMoreError = "";
     state.isLoadingMorePosts = false;
@@ -1480,6 +1489,7 @@
     state.currentLatestRepliesTopic = null;
     state.currentTopicFetchedAt = 0;
     state.directReplyCache.clear();
+    state.replyParentCache.clear();
     state.currentTargetSpec = null;
     state.deferOwnerFilterAutoLoad = false;
     state.isRefreshingLatestReplies = false;
@@ -2124,10 +2134,11 @@
     return tag.name || tag.id || tag.text || tag.label || "";
   }
 
-  function buildPostCard(post, topicOwner = null) {
+  function buildPostCard(post, topicOwner = null, inline = null) {
     const article = document.createElement("article");
-    article.className = "ld-post-card";
-    if (typeof post.post_number === "number") {
+    article.className = inline ? "ld-inline-post" : "ld-post-card";
+    const ancestors = [...(inline?.ancestors || []), post.post_number];
+    if (!inline && typeof post.post_number === "number") {
       article.dataset.postNumber = String(post.post_number);
     }
 
@@ -2176,11 +2187,20 @@
 
     authorBlock.append(authorRow, meta);
     header.append(avatarElement, authorBlock);
+    if (inline) {
+      const locate = document.createElement("button");
+      locate.type = "button";
+      locate.className = "ld-inline-locate";
+      locate.textContent = `#${post.post_number} · 定位原楼`;
+      locate.addEventListener("click", () => navigateToPost(post.post_number));
+      header.append(locate);
+    }
 
-    const replyToTab = buildReplyToTab(post);
+    const replyToTab = inline?.parentPreview ? null : buildReplyToTab(post, ancestors);
 
     const body = document.createElement("div");
     body.className = "ld-post-body cooked";
+    body.dataset.readingPostNumber = String(post.post_number);
     body.innerHTML = post.cooked || "";
     initializePostCarousels(body);
     queueMicrotask(() => {
@@ -2195,7 +2215,7 @@
       link.rel = "noopener noreferrer";
     }
 
-    const postInfos = buildPostInfos(post);
+    const postInfos = inline?.parentPreview ? null : buildPostInfos(post, ancestors);
 
     const actions = document.createElement("div");
     actions.className = "ld-post-actions";
@@ -2312,6 +2332,7 @@
       article.append(header, body);
     }
     article.appendChild(actions);
+    if (postInfos?.inlineThread) article.append(postInfos.inlineThread);
     if (!post.deleted && (post.can_boost || post.boosts?.length)) {
       const boosts = document.createElement("div");
       boosts.className = "ld-post-boosts";
@@ -3131,10 +3152,8 @@
   }
 
   function cancelDirectRepliesRequest() {
-    if (state.directRepliesAbortController) {
-      state.directRepliesAbortController.abort();
-      state.directRepliesAbortController = null;
-    }
+    for (const controller of state.inlineReplyControllers.keys()) controller.abort();
+    state.inlineReplyControllers.clear();
   }
 
   function cancelReplyRequest() {
@@ -6219,7 +6238,7 @@
     state.root?.querySelectorAll(".ld-reactions-popover, .ld-flag-popover, .ld-post-replies-popover").forEach((p) => {
       p.setAttribute("hidden", "");
     });
-    state.root?.querySelectorAll(".ld-post-info-item--replies-trigger, .ld-post-react-btn").forEach((btn) => {
+    state.root?.querySelectorAll(".ld-post-react-btn, .ld-post-info-item--replies-trigger[aria-haspopup]").forEach((btn) => {
       btn.setAttribute("aria-expanded", "false");
     });
   }
@@ -6712,37 +6731,63 @@
     return parts.join(" · ");
   }
 
-  function buildReplyToTab(post) {
-    const replyPostNum = post.reply_to_post_number;
-    if (!Number.isFinite(replyPostNum) || replyPostNum === post.post_number) {
-      return null;
+  function buildReplyToTab(post, ancestors) {
+    const number = post.reply_to_post_number;
+    if (!Number.isSafeInteger(number) || number < 1 || number === post.post_number) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "ld-reply-to-wrap";
+    const label = post.reply_to_user?.username ? `@${post.reply_to_user.username}` : `第 ${number} 楼`;
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "ld-reply-to-tab";
+    if (state.settings.replyDisplay === "legacy") {
+      trigger.textContent = `回复 ${label}`;
+      trigger.setAttribute("aria-label", `跳转到被回复的帖子：${label}`);
+      trigger.addEventListener("click", () => navigateToPost(number));
+      return trigger;
+    }
+    trigger.textContent = `回复 ${label} ▾`;
+    trigger.setAttribute("aria-label", `展开被回复的帖子：${label}`);
+    const preview = document.createElement("div");
+    preview.className = "ld-inline-thread ld-parent-preview";
+    const topic = state.currentTopic;
+    bindInlineReplyExpansion(trigger, preview, async (signal) => {
+      let parent = topic?.post_stream?.posts?.find((p) => p.post_number === number) || state.replyParentCache.get(number);
+      if (!parent) {
+        const response = await fetch(`/posts/by_number/${topic.id}/${number}`, {
+          credentials: "include", signal, headers: { Accept: "application/json" }
+        });
+        if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取被回复的帖子");
+        parent = await response.json();
+        if (parent?.post_number !== number || (parent.topic_id && parent.topic_id !== topic.id) || typeof parent.cooked !== "string") {
+          throw new Error("被回复的帖子不可用");
+        }
+        if (!signal.aborted && state.currentTopic?.id === topic.id) state.replyParentCache.set(number, parent);
+      }
+      return [buildPostCard(parent, getTopicOwnerIdentity(topic), { ancestors, parentPreview: true })];
+    });
+    const locate = document.createElement("button");
+    locate.type = "button";
+    locate.className = "ld-inline-locate";
+    locate.textContent = "定位原楼";
+    locate.addEventListener("click", () => navigateToPost(number));
+    wrap.append(trigger, locate, preview);
+    return wrap;
+  }
+
+  function buildAbsoluteTopicPostUrl(topic, postNumber, topicIdHint = null) {
+    const topicId = Number(topic?.id ?? topicIdHint);
+    const pn = Number(postNumber);
+    if (!Number.isFinite(topicId) || !Number.isFinite(pn)) {
+      return "";
     }
 
-    const replyUser = post.reply_to_user;
-    const displayName = replyUser?.username ? `@${replyUser.username}` : `第 ${replyPostNum} 楼`;
+    const slug = typeof topic?.slug === "string" ? topic.slug.trim() : "";
+    if (slug) {
+      return `${location.origin}/t/${slug}/${topicId}/${pn}`;
+    }
 
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.className = "ld-reply-to-tab";
-    tab.setAttribute("aria-label", `跳转到被回复的帖子：${displayName}`);
-    tab.title = `跳转到第 ${replyPostNum} 楼`;
-
-    const icon = document.createElement("span");
-    icon.className = "ld-reply-to-tab-icon";
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`;
-
-    const label = document.createElement("span");
-    label.className = "ld-reply-to-tab-label";
-    label.textContent = displayName;
-
-    tab.append(icon, label);
-    tab.addEventListener("click", (e) => {
-      e.stopPropagation();
-      navigateToPost(replyPostNum);
-    });
-
-    return tab;
+    return `${location.origin}/t/topic/${topicId}/${pn}`;
   }
 
   function excerptFromCookedForReplyPreview(cooked, maxLen) {
@@ -6763,49 +6808,6 @@
     } catch {
       return "";
     }
-  }
-
-  function getDirectRepliesToPostNumber(topic, parentPostNumber) {
-    if (!Number.isFinite(parentPostNumber) || !topic?.post_stream?.posts) {
-      return [];
-    }
-
-    return topic.post_stream.posts
-      .filter((p) => p && typeof p === "object"
-        && Number.isFinite(p.reply_to_post_number)
-        && p.reply_to_post_number === parentPostNumber)
-      .slice()
-      .sort((a, b) => (Number(a.post_number) || 0) - (Number(b.post_number) || 0));
-  }
-
-  function getKnownDirectReplies(topic, parentPostNumber) {
-    const merged = new Map();
-    for (const post of getDirectRepliesToPostNumber(topic, parentPostNumber)) {
-      if (Number.isFinite(post?.post_number)) {
-        merged.set(post.post_number, post);
-      }
-    }
-    for (const post of state.directReplyCache.get(parentPostNumber) || []) {
-      if (Number.isFinite(post?.post_number) && !merged.has(post.post_number)) {
-        merged.set(post.post_number, post);
-      }
-    }
-    return Array.from(merged.values()).sort((a, b) => (Number(a.post_number) || 0) - (Number(b.post_number) || 0));
-  }
-
-  function buildAbsoluteTopicPostUrl(topic, postNumber, topicIdHint = null) {
-    const topicId = Number(topic?.id ?? topicIdHint);
-    const pn = Number(postNumber);
-    if (!Number.isFinite(topicId) || !Number.isFinite(pn)) {
-      return "";
-    }
-
-    const slug = typeof topic?.slug === "string" ? topic.slug.trim() : "";
-    if (slug) {
-      return `${location.origin}/t/${slug}/${topicId}/${pn}`;
-    }
-
-    return `${location.origin}/t/topic/${topicId}/${pn}`;
   }
 
   function buildPostReplyPreviewRow(replyPost) {
@@ -6848,292 +6850,143 @@
     return row;
   }
 
-  function canEagerLoadMissingDirectReplies() {
-    if (!state.currentTopic) {
-      return false;
-    }
-
-    if (state.settings.postMode === "first") {
-      return false;
-    }
-
-    if (state.settings.replyOrder === "latestFirst") {
-      return false;
-    }
-
-    if (state.currentTargetSpec?.hasTarget) {
-      return false;
-    }
-
-    return hasMoreTopicPosts(state.currentTopic);
-  }
-
-  async function waitForTopicLoadMoreIdle(maxWaitMs = 12000) {
-    const deadline = Date.now() + maxWaitMs;
-    while (state.isLoadingMorePosts && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 60));
-    }
-  }
-
-  async function fallbackSequentialDirectRepliesLoad(parentPostNumber, maxBatches = DIRECT_REPLIES_FALLBACK_BATCHES) {
-    if (!Number.isFinite(parentPostNumber)) {
-      return;
-    }
-
-    let batches = 0;
-    while (batches < maxBatches) {
-      if (getDirectRepliesToPostNumber(state.currentTopic, parentPostNumber).length > 0) {
-        return;
+  // 收起时移除正文节点，让原站组件释放实例；重新展开复用已加载的数据。
+  function bindInlineReplyExpansion(trigger, region, load) {
+    region.hidden = true;
+    region.setAttribute("role", "region");
+    region.setAttribute("aria-label", trigger.getAttribute("aria-label"));
+    trigger.setAttribute("aria-expanded", "false");
+    let controller = null;
+    const collapse = () => {
+      for (const [active, target] of state.inlineReplyControllers) {
+        if (target === region || region.contains(target)) active.abort();
       }
-
-      if (!canEagerLoadMissingDirectReplies()) {
-        return;
-      }
-
-      await waitForTopicLoadMoreIdle();
-
-      if (!canEagerLoadMissingDirectReplies()) {
-        return;
-      }
-
-      const loadedBefore = getLoadedTopicPostIds(state.currentTopic).length;
-      await loadMorePosts();
-      batches += 1;
-
-      const loadedAfter = getLoadedTopicPostIds(state.currentTopic).length;
-      if (loadedAfter <= loadedBefore) {
-        return;
-      }
-    }
-  }
-
-  async function ensureDirectRepliesLoadedForPopover(parentPostNumber, maxStreamBatches = DIRECT_REPLIES_MAX_BATCHES) {
-    if (!Number.isFinite(parentPostNumber) || !state.currentUrl || !state.currentTopic) {
-      return;
-    }
-
-    const urlAtStart = state.currentUrl;
-    let topic = state.currentTopic;
-    const parentFromTopic = (topic.post_stream?.posts || []).find((p) => p?.post_number === parentPostNumber);
-    if (!parentFromTopic || !Number.isFinite(parentFromTopic.id)) {
-      await fallbackSequentialDirectRepliesLoad(parentPostNumber);
-      return;
-    }
-
-    const expected = typeof parentFromTopic.reply_count === "number" ? parentFromTopic.reply_count : 0;
-    if (expected <= 0 || getKnownDirectReplies(topic, parentPostNumber).length >= expected) {
-      return;
-    }
-
-    cancelDirectRepliesRequest();
-    const controller = new AbortController();
-    state.directRepliesAbortController = controller;
-    const signal = controller.signal;
-
-    try {
-      const totalPosts = Number(topic.posts_count || 0);
-      const rawStream = topic?.post_stream?.stream;
-      const streamLen = Array.isArray(rawStream) ? rawStream.length : 0;
-      const needsStreamHydrate = streamLen === 0 || (totalPosts > 0 && streamLen < totalPosts);
-
-      if (needsStreamHydrate) {
-        const freshMeta = await fetchTrackedTopicJson(state.currentUrl, signal, state.currentTopicIdHint, {
-          canonical: true,
-          trackVisit: false
-        });
-        if (signal.aborted || state.currentUrl !== urlAtStart) {
-          return;
+      region.hidden = true;
+      region.replaceChildren();
+      trigger.setAttribute("aria-expanded", "false");
+      trigger.focus({ preventScroll: true });
+    };
+    const render = async (more = false) => {
+      if (controller && !controller.signal.aborted) return;
+      controller = new AbortController();
+      const current = controller;
+      state.inlineReplyControllers.set(current, region);
+      region.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      region.setAttribute("aria-busy", "true");
+      const status = document.createElement("p");
+      status.className = "ld-inline-status";
+      status.setAttribute("role", "status");
+      status.textContent = "正在加载回复…";
+      if (!more) region.replaceChildren();
+      region.querySelector(":scope > .ld-inline-collapse")?.remove();
+      region.append(status);
+      try {
+        const nodes = await load(current.signal, more);
+        if (current.signal.aborted || !region.isConnected) return;
+        region.replaceChildren(...nodes);
+      } catch {
+        if (current.signal.aborted || !region.isConnected) return;
+        status.textContent = "加载失败，请重试；也可定位原楼查看。";
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.textContent = "重试";
+        retry.addEventListener("click", (event) => { event.stopPropagation(); retry.remove(); status.remove(); void render(more); });
+        region.append(retry);
+      } finally {
+        state.inlineReplyControllers.delete(current);
+        if (controller === current) {
+          controller = null;
+          region.removeAttribute("aria-busy");
         }
-        topic = mergeTopicPreviewData(topic, {
-          posts_count: freshMeta.posts_count,
-          post_stream: { stream: freshMeta.post_stream?.stream || [], posts: [] }
-        });
       }
-
-      const stream = getTopicStreamIds(topic);
-      const parentIndex = stream.indexOf(parentFromTopic.id);
-      if (parentIndex === -1) {
-        await fallbackSequentialDirectRepliesLoad(parentPostNumber);
-        return;
+      if (!current.signal.aborted && region.isConnected) {
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "ld-inline-collapse";
+        close.textContent = "收起";
+        close.addEventListener("click", collapse);
+        region.append(close);
       }
-
-      const loadedIds = new Set(getLoadedTopicPostIds(topic));
-      const pending = stream.slice(parentIndex + 1).filter((id) => !loadedIds.has(id));
-      let batches = 0;
-
-      while (pending.length > 0 && batches < maxStreamBatches) {
-        if (signal.aborted || state.currentUrl !== urlAtStart) {
-          return;
-        }
-
-        if (getDirectRepliesToPostNumber(topic, parentPostNumber).length >= expected) {
-          break;
-        }
-
-        const chunk = pending.splice(0, LOAD_MORE_BATCH_SIZE);
-        const posts = await fetchTopicPostsBatch(state.currentUrl, chunk, signal, state.currentTopicIdHint);
-        if (signal.aborted || state.currentUrl !== urlAtStart || !posts.length) {
-          return;
-        }
-
-        topic = mergeTopicPreviewData(topic, { post_stream: { posts } });
-        batches += 1;
+    };
+    trigger.addEventListener("click", () => {
+      if (region.hidden) {
+        if (region.classList.contains("ld-post-replies-popover")) closeAllPopovers();
+        void render();
+      } else collapse();
+    });
+    region.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest(".ld-inline-more")?.parentElement === region) {
+        event.stopPropagation();
+        event.target.closest(".ld-inline-more").remove();
+        region.querySelector(":scope > .ld-inline-collapse")?.remove();
+        void render(true);
       }
-
-      const directReplies = getDirectRepliesToPostNumber(topic, parentPostNumber);
-      if (directReplies.length) {
-        state.directReplyCache.set(parentPostNumber, directReplies);
-      }
-
-      if (directReplies.length < expected && pending.length > 0) {
-        showToast(`已限制直接回复扫描范围（最多 ${maxStreamBatches * LOAD_MORE_BATCH_SIZE} 条），更多内容请打开原帖`, "info", 3200);
-      }
-    } catch (error) {
-      if (!signal.aborted) {
-        showToast(`加载直接回复失败：${error?.message || "请求未完成"}`, "error");
-      }
-    } finally {
-      if (state.directRepliesAbortController === controller) {
-        state.directRepliesAbortController = null;
-      }
-    }
+    });
   }
 
-  function resolveEmptyDirectRepliesMessage(expected) {
-    if (expected <= 0) {
-      return "暂无直接回复。";
-    }
-
-    if (hasMoreTopicPosts(state.currentTopic)) {
-      return "当前扫描范围内未找到直接回复，可打开原帖继续查看。";
-    }
-
-    return "未找到可显示的直接回复，相关帖子可能已被删除。";
-  }
-
-  function populatePostRepliesPopover(popoverEl, parentPost) {
-    popoverEl.replaceChildren();
-
-    const topic = state.currentTopic;
-    const parentNum = parentPost?.post_number;
-    if (!Number.isFinite(parentNum)) {
-      return;
-    }
-
-    const replies = getKnownDirectReplies(topic, parentNum);
-    const expected = typeof parentPost.reply_count === "number" ? parentPost.reply_count : replies.length;
-
-    if (!replies.length) {
-      const empty = document.createElement("div");
-      empty.className = "ld-post-replies-popover-empty";
-      empty.textContent = resolveEmptyDirectRepliesMessage(expected);
-      popoverEl.appendChild(empty);
-      return;
-    }
-
-    if (replies.length < expected) {
-      const hint = document.createElement("div");
-      hint.className = "ld-post-replies-popover-hint";
-      hint.textContent = `当前找到 ${replies.length} / ${expected} 条直接回复；其余可能超出扫描范围或已被删除。`;
-      popoverEl.appendChild(hint);
-    }
-
-    for (const replyPost of replies) {
-      popoverEl.appendChild(buildPostReplyPreviewRow(replyPost));
-    }
-  }
-
-  function buildPostReplyStatWrap(parentPost, item) {
+  function buildPostReplyStatWrap(parentPost, item, ancestors) {
     const wrap = document.createElement("div");
     wrap.className = "ld-post-replies-stat-wrap";
-
     const trigger = document.createElement("button");
     trigger.type = "button";
     trigger.className = "ld-post-info-item ld-post-info-item--replies-trigger";
-    trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-haspopup", "true");
-    trigger.setAttribute("aria-label", `第 ${parentPost.post_number ?? "?"} 楼有 ${item.count} 条直接回复，点击查看`);
-    trigger.title = `${item.label} ${item.count}：点击查看；将按全串流补齐数据，点击楼层可在预览内跳转或新标签打开`;
-
-    const iconSpan = document.createElement("span");
-    iconSpan.className = "ld-post-info-icon";
-    iconSpan.setAttribute("aria-hidden", "true");
-    iconSpan.innerHTML = item.icon;
-
-    const countSpan = document.createElement("span");
-    countSpan.textContent = String(item.count);
-
-    trigger.append(iconSpan, countSpan);
-
-    const popover = document.createElement("div");
-    popover.className = "ld-post-replies-popover";
-    popover.setAttribute("hidden", "");
-    popover.setAttribute("role", "region");
-    popover.setAttribute(
-      "aria-label",
-      Number.isFinite(parentPost.post_number)
-        ? `第 ${parentPost.post_number} 楼的直接回复`
-        : "直接回复列表"
-    );
-
-    trigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const willOpen = popover.hasAttribute("hidden");
-      closeAllPopovers();
-      if (!willOpen) {
-        trigger.setAttribute("aria-expanded", "false");
-        return;
+    trigger.setAttribute("aria-label", `展开第 ${parentPost.post_number} 楼的 ${item.count} 条直接回复`);
+    trigger.textContent = `${item.count} 条回复 ▾`;
+    const region = document.createElement("div");
+    const isLegacy = state.settings.replyDisplay === "legacy";
+    region.className = isLegacy ? "ld-post-replies-popover" : "ld-inline-thread";
+    if (isLegacy) trigger.setAttribute("aria-haspopup", "true");
+    const topic = state.currentTopic;
+    bindInlineReplyExpansion(trigger, region, async (signal, more) => {
+      const number = parentPost.post_number;
+      let cached = state.directReplyCache.get(number);
+      if (!cached || (more && !cached.complete)) {
+        const after = cached?.after || 1;
+        const response = await fetch(`/posts/${parentPost.id}/replies?after=${after}`, {
+          credentials: "include", signal, headers: { Accept: "application/json" }
+        });
+        if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取回复");
+        const data = await response.json();
+        if (!Array.isArray(data)) throw new Error("回复数据不可用");
+        const posts = data.filter((p) => p && Number.isSafeInteger(p.post_number) && p.post_number > number &&
+          Number.isSafeInteger(p.id) && typeof p.cooked === "string" &&
+          (!p.topic_id || p.topic_id === topic.id) && (!p.reply_to_post_number || p.reply_to_post_number === number));
+        const merged = new Map((cached?.posts || []).map((p) => [p.post_number, p]));
+        for (const post of posts) merged.set(post.post_number, post);
+        const next = Math.max(after, ...posts.map((p) => p.post_number));
+        cached = { posts: Array.from(merged.values()).sort((a, b) => a.post_number - b.post_number), after: next,
+          complete: next <= after || merged.size >= parentPost.reply_count };
+        if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
+        state.directReplyCache.set(number, cached);
+        for (const post of posts) state.replyParentCache.set(post.post_number, post);
       }
-
-      const parentNum = parentPost.post_number;
-      if (!Number.isFinite(parentNum)) {
-        return;
+      const nodes = cached.posts.filter((p) => !ancestors.includes(p.post_number))
+        .map((p) => isLegacy ? buildPostReplyPreviewRow(p) : buildPostCard(p, getTopicOwnerIdentity(topic), { ancestors }));
+      const summary = document.createElement("p");
+      summary.className = "ld-inline-status";
+      summary.textContent = cached.posts.length
+        ? `已显示 ${cached.posts.length} / ${parentPost.reply_count} 条直接回复`
+        : "暂无可显示的直接回复，相关帖子可能已被删除。";
+      nodes.unshift(summary);
+      if (!cached.complete) {
+        const moreButton = document.createElement("button");
+        moreButton.type = "button";
+        moreButton.className = "ld-inline-more";
+        moreButton.textContent = "加载更多回复";
+        nodes.push(moreButton);
       }
-
-      trigger.disabled = true;
-
-      void (async () => {
-        try {
-          await ensureDirectRepliesLoadedForPopover(parentNum);
-        } catch {
-          /* loadMorePosts 内部已处理错误 */
-        }
-
-        const card = state.content?.querySelector(`.ld-post-card[data-post-number="${parentNum}"]`);
-        const liveWrap = card?.querySelector(".ld-post-replies-stat-wrap");
-        const liveTrigger = liveWrap?.querySelector(".ld-post-info-item--replies-trigger");
-        const livePopover = liveWrap?.querySelector(".ld-post-replies-popover");
-
-        if (liveTrigger) {
-          liveTrigger.disabled = false;
-        } else if (trigger.isConnected) {
-          trigger.disabled = false;
-        }
-
-        if (!livePopover || !liveTrigger) {
-          return;
-        }
-
-        const topic = state.currentTopic;
-        const freshParent = (topic?.post_stream?.posts || []).find((p) => p?.post_number === parentNum) || parentPost;
-
-        populatePostRepliesPopover(livePopover, freshParent);
-        livePopover.removeAttribute("hidden");
-        liveTrigger.setAttribute("aria-expanded", "true");
-      })();
+      return nodes;
     });
-
-    wrap.append(trigger, popover);
+    wrap.append(trigger);
+    if (isLegacy) wrap.append(region);
+    else wrap.inlineThread = region;
     return wrap;
   }
 
-  function buildPostInfos(post) {
+  function buildPostInfos(post, ancestors) {
     if (!(post.reply_count > 0)) return null;
-    return buildPostReplyStatWrap(post, {
-      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
-      count: post.reply_count,
-      label: "回复"
-    });
+    return buildPostReplyStatWrap(post, { count: post.reply_count }, ancestors);
   }
 
   function buildPostMeta(post) {
@@ -7222,6 +7075,10 @@
 
       if (settings.authorFilter !== "all" && settings.authorFilter !== "topicOwner") {
         settings.authorFilter = DEFAULT_SETTINGS.authorFilter;
+      }
+
+      if (settings.replyDisplay !== "inline" && settings.replyDisplay !== "legacy") {
+        settings.replyDisplay = DEFAULT_SETTINGS.replyDisplay;
       }
 
       if (settings.floatingReplyButton !== "off" && settings.floatingReplyButton !== "on") {
@@ -7431,6 +7288,7 @@
 
     cacheCurrentTopic();
     if (key === "trackPreviewVisit" || key === "previewMode") stopReading();
+    if (key === "replyDisplay") cancelDirectRepliesRequest();
     state.settings[key] = key === "postBodyFontSize"
       ? clampPostBodyFontSize(target.value)
       : target.value;
@@ -7477,6 +7335,7 @@
   }
 
   function resetSettings() {
+    cancelDirectRepliesRequest();
     cacheCurrentTopic();
     stopReading();
     state.settings = { ...DEFAULT_SETTINGS };
