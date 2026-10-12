@@ -77,7 +77,7 @@ try {
     const link = child.querySelector('.ld-post-body a');
     check(link.target === '_blank' && link.rel === 'noopener noreferrer', '正文链接属性丢失');
     child.querySelector('.ld-post-info-item--replies-trigger').click(); await settle();
-    check(child.querySelector(':scope > .ld-inline-thread .ld-post-body').textContent.includes('第 3 楼正文'), '子回复不能展开'); 
+    check(child.querySelector(':scope > .ld-inline-thread .ld-post-body').textContent.includes('第 3 楼正文'), '子回复不能展开');
     child.querySelector('.ld-post-body').click();
     check(!region.hidden && trigger.getAttribute('aria-expanded') === 'true', '正文被浮层关闭逻辑收起');
     region.querySelector(':scope > .ld-inline-more').click(); await settle();
