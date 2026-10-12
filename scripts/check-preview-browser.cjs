@@ -69,7 +69,7 @@ try {
     const s = window.previewTest.state;
     if (s.meta.querySelectorAll('.ld-tag').length !== 3 || s.content.querySelector('.ld-tag-list')) throw Error('标签未移动到主题信息区');
     if (s.content.textContent.includes('抽屉预览是便捷阅读视图') || !s.toastStack.querySelector('.ld-toast-close')) throw Error('说明仍占正文空间或不可关闭');
-    if (s.content.querySelector('.ld-post-card').getBoundingClientRect().top - s.drawerBody.getBoundingClientRect().top > 12) throw Error('首帖与标题间仍有多余空白');
+    if (s.content.querySelector('.ld-reading-mode') || s.content.querySelector('.ld-post-card').getBoundingClientRect().top - s.drawerBody.getBoundingClientRect().top > 12) throw Error('正文多余切换栏或首帖与标题间仍有空白');
     s.toastStack.querySelector('.ld-toast-close').click();
     return '标签并入标题信息、首帖紧凑布局和一次性可关闭悬浮说明：通过';
   })()`).trim());
@@ -80,8 +80,10 @@ try {
       const s = window.previewTest.state;
       const reply = s.replyFabButton.getBoundingClientRect(), top = s.topFabButton.getBoundingClientRect(), bottom = s.bottomFabButton.getBoundingClientRect(), root = s.root.getBoundingClientRect();
       const refresh = s.latestRepliesRefreshButton.getBoundingClientRect(), search = s.topicSearchButton.getBoundingClientRect();
-      if (reply.width === 0 || top.width === 0 || root.bottom - reply.bottom < 27 || root.bottom - reply.bottom > 32 || top.bottom > reply.top || root.right - reply.right < 25 || root.right - reply.right > 28) throw Error('悬浮按钮未向左上移动');
-      if (bottom.width === 0 || refresh.width === 0 || search.width === 0 || refresh.right >= search.left || refresh.top !== search.top || refresh.bottom >= top.top || top.right >= bottom.left || top.top !== bottom.top) throw Error('刷新与搜索未在第一排、回顶与最新回复未在第二排');
+      const tools=s.root.querySelector('.ld-reading-tools').getBoundingClientRect(), body=s.drawerBody.getBoundingClientRect();
+      const buttons=[refresh,search,top,bottom,reply];
+      if(buttons.some(r=>r.width===0 || r.left<tools.left || r.right>tools.right || r.top<tools.top || r.bottom>tools.bottom) || body.bottom>tools.top+1) throw Error('底部工具栏超界或遮挡正文');
+      if(buttons.some(r=>Math.abs(r.top-top.top)>4) || refresh.right>search.left || search.right>top.left || top.right>bottom.left || bottom.right>reply.left) throw Error('底部工具未保持单排顺序');
       if (s.header.querySelector('.ld-drawer-refresh, .ld-drawer-back-top')) throw Error('顶部仍有重复按钮');
       s.drawerBody.scrollTop = 500; s.topFabButton.click();
       if (s.drawerBody.scrollTop !== 0) throw Error('悬浮回到顶部失效');
@@ -94,7 +96,7 @@ try {
       if (s.topicSearchPanel.hidden || document.activeElement !== s.topicSearchInput || panel.left < root.left || panel.right > root.right || s.topicSearchPanel.scrollWidth > panel.width) throw Error('帖内搜索未聚焦或窄屏溢出');
       document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
       if (!s.topicSearchPanel.hidden || !document.body.classList.contains('ld-drawer-page-open') || document.activeElement !== s.topicSearchButton) throw Error('Esc 未关闭搜索并恢复焦点');
-      return '悬浮按钮位置、回顶及回复开关：通过（${width}px）';
+      return '底部工具栏位置、回顶及回复开关：通过（${width}px）';
     })()`).trim());
   }
   run(['set','viewport','1280','720']);
@@ -288,11 +290,14 @@ try {
   console.log(evaluate(`(async () => {
     const { state, buildPostCard } = window.previewTest;
     state.availableReactions = ['heart', '+1', 'clap'].map(id => ({ id }));
-    const post = { id: 987, post_number: 1, reads: 54321, reply_count: 5,
+    const post = { id: 987, post_number: 2, reads: 54321, reply_count: 5,
       reactions: [{id:'heart',count:2},{id:'+1',count:1},{id:'clap',count:1}], reaction_users_count: 4,
       current_user_reaction: { id:'heart', can_undo:true }, actions_summary:[{id:2,acted:true,count:2}],
       cooked:'<pre><code>' + 'long_code_'.repeat(500) + '</code></pre>' };
+    const replyDisplayBefore = state.settings.replyDisplay;
+    state.settings.replyDisplay = 'legacy';
     const card = buildPostCard(post);
+    state.settings.replyDisplay = replyDisplayBefore;
     const view = document.createElement('div'); view.className = 'ld-topic-view'; view.append(card);
     state.drawerBody.replaceChildren(view);
     const reaction = card.querySelector('.ld-post-react-btn');

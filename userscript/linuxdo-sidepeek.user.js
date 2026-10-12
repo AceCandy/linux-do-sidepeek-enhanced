@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.1.0
+// @version      1.2.0
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -2209,7 +2209,7 @@
   }
 
   #ld-drawer-root .ld-drawer-content {
-    padding: 10px 18px 172px;
+    padding: 10px 18px 24px;
   }
 
   #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-body {
@@ -2227,20 +2227,29 @@
     display: none !important;
   }
 
+  #ld-drawer-root .ld-reading-tools {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px max(8px, env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--primary-low, #dfe5e4);
+    background: var(--secondary, #fff);
+  }
+
+  #ld-drawer-root .ld-reading-tools:not(:has(> button:not([hidden]))) { display: none; }
+  #ld-drawer-root .ld-reading-tools .ld-drawer-reply-trigger { margin-left: auto; }
+
   #ld-drawer-root .ld-drawer-reply-fab {
-    position: absolute;
-    bottom: max(28px, env(safe-area-inset-bottom, 0px) + 20px);
-    right: 26px;
     z-index: 5;
     display: inline-flex;
     align-items: center;
     gap: 8px;
     border: 1px solid color-mix(in srgb, var(--tertiary, #3b82f6) 24%, var(--primary-low, rgba(15, 23, 42, 0.12)));
     border-radius: 999px;
-    background: color-mix(in srgb, var(--secondary, #fff) 82%, transparent);
+    background: var(--secondary, #fff);
     color: var(--tertiary, #3b82f6);
-    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.18);
-    backdrop-filter: blur(12px);
+    box-shadow: none;
     padding: 10px 12px;
     cursor: pointer;
     transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
@@ -2248,7 +2257,7 @@
 
   #ld-drawer-root .ld-drawer-reply-fab:hover {
     transform: translateY(-1px);
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+    background: color-mix(in srgb, var(--tertiary, #3b82f6) 8%, var(--secondary, #fff));
     border-color: var(--tertiary, #3b82f6);
   }
 
@@ -2281,23 +2290,9 @@
   }
 
   #ld-drawer-root .ld-drawer-top-fab {
-    bottom: max(76px, env(safe-area-inset-bottom, 0px) + 68px);
     width: 44px;
     height: 40px;
     justify-content: center;
-  }
-
-  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh {
-    right: 78px;
-  }
-
-  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-refresh,
-  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-search {
-    bottom: max(124px, env(safe-area-inset-bottom, 0px) + 116px);
-  }
-
-  #ld-drawer-root .ld-drawer-top-fab.ld-drawer-back-top {
-    right: 78px;
   }
 
   #ld-drawer-root .ld-drawer-top-fab svg {
@@ -2485,17 +2480,55 @@
   #ld-drawer-root .ld-topic-view {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 20px;
+    gap: 12px;
+  }
+
+  #ld-drawer-root .ld-topic-post-list {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
   }
 
   #ld-drawer-root .ld-post-card,
   #ld-drawer-root .ld-inline-post {
     min-width: 0;
     border: 1px solid var(--primary-low, rgba(15, 23, 42, 0.12));
-    border-radius: 18px;
-    background: color-mix(in srgb, var(--secondary, #fff) 96%, var(--primary-low, rgba(15, 23, 42, 0.08)));
+    border-radius: 12px;
+    background: var(--secondary, #fff);
     overflow: visible;
   }
+
+  #ld-drawer-root .ld-topic-view[data-reply-display="inline"] .ld-topic-post-list {
+    gap: 0;
+    border: 1px solid var(--primary-low, #dfe5e4);
+    border-radius: 14px;
+    background: var(--secondary, #fff);
+  }
+
+  #ld-drawer-root .ld-topic-view[data-reply-display="inline"] .ld-post-card {
+    border: 0;
+    border-bottom: 1px solid var(--primary-low, #dfe5e4);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  #ld-drawer-root .ld-topic-view[data-reply-display="inline"] .ld-post-card:last-child { border-bottom: 0; }
+  #ld-drawer-root .ld-topic-view[data-reply-display="inline"] .ld-post-card[data-post-number="1"] {
+    border-radius: 14px 14px 0 0;
+    background: color-mix(in srgb, var(--tertiary, #3b82f6) 4%, var(--secondary, #fff));
+  }
+
+  #ld-drawer-root .ld-thread-depth-label {
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--tertiary, #3b82f6);
+    background: color-mix(in srgb, var(--tertiary, #3b82f6) 8%, transparent);
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  #ld-drawer-root .ld-thread-reply-count { font-size: 12px; }
 
   #ld-drawer-root .ld-post-header {
     display: flex;
@@ -2555,6 +2588,12 @@
     min-width: 0;
   }
 
+  #ld-drawer-root .ld-post-body:not(.ld-native-body) a[href] {
+    color: var(--tertiary, #3b82f6);
+    text-decoration-color: color-mix(in srgb, var(--tertiary, #3b82f6) 40%, transparent);
+    text-underline-offset: 3px;
+  }
+
   #ld-drawer-root .ld-post-body:not(.ld-native-body) {
     line-height: 1.72;
     font-size: var(--ld-post-body-font-size, 14px);
@@ -2583,8 +2622,11 @@
   }
 
   #ld-drawer-root .ld-post-actions-divider {
-    color: var(--primary-medium);
+    width: 1px;
+    height: 14px;
     margin: 0 2px;
+    background: var(--primary-low, #dfe5e4);
+    font-size: 0;
   }
 
   #ld-drawer-root .ld-post-actions .ld-post-reply-button-label {
@@ -2593,6 +2635,7 @@
 
   #ld-drawer-root .ld-post-actions .ld-post-reply-button {
     padding: 6px;
+    min-height: 32px;
   }
 
   #ld-drawer-root .ld-post-actions .ld-post-icon-btn {
@@ -2723,6 +2766,8 @@
     padding: 0;
     margin: 0;
     font: inherit;
+    font-size: 12px;
+    min-height: 32px;
     color: inherit;
     cursor: pointer;
     border-radius: 6px;
@@ -2821,31 +2866,66 @@
 
   #ld-drawer-root .ld-inline-thread {
     display: grid;
-    gap: 12px;
+    gap: 0;
     min-width: 0;
-    margin: 12px 16px 16px;
-    padding-left: 12px;
-    border-left: 2px solid var(--tertiary, #3b82f6);
+    margin: 0 16px 14px 30px;
+    padding-left: 18px;
+    border-left: 2px solid color-mix(in srgb, var(--tertiary, #3b82f6) 25%, var(--primary-low, #dfe5e4));
   }
 
   #ld-drawer-root .ld-inline-thread[hidden] { display: none !important; }
 
-  /* 深层回复保持同一宽度，避免手机正文逐层缩窄。 */
   #ld-drawer-root .ld-inline-post .ld-inline-thread {
-    margin: 12px 0 0;
+    margin: 0 0 8px 14px;
+    padding-left: 14px;
+  }
+
+  /* 深对话保留连接线但不继续缩窄正文。 */
+  #ld-drawer-root .ld-inline-post[data-thread-depth="3"] .ld-inline-thread {
+    margin-left: 0;
     padding-left: 0;
     border-left: 0;
   }
 
   #ld-drawer-root .ld-inline-post {
-    border-radius: 12px;
+    position: relative;
+    border: 0;
+    border-top: 0;
+    border-radius: 0;
+    background: transparent;
     overflow-wrap: anywhere;
   }
+
+  #ld-drawer-root .ld-inline-thread > .ld-inline-post::before {
+    content: "";
+    position: absolute;
+    top: 28px;
+    left: -18px;
+    width: 18px;
+    border-top: 2px solid color-mix(in srgb, var(--tertiary, #3b82f6) 25%, var(--primary-low, #dfe5e4));
+  }
+
+  #ld-drawer-root .ld-inline-post .ld-inline-thread > .ld-inline-post::before {
+    left: -14px;
+    width: 14px;
+  }
+
+  #ld-drawer-root .ld-inline-post[data-thread-depth="3"] .ld-inline-post::before { display: none; }
+  #ld-drawer-root .ld-inline-post .ld-post-header { padding: 12px 0 0; }
+  #ld-drawer-root .ld-inline-post .ld-post-body { padding: 12px 0; }
+  #ld-drawer-root .ld-inline-post .ld-post-actions { padding: 0 0 10px; }
+  #ld-drawer-root .ld-inline-post > .ld-reply-to-tab { margin: 8px 0 0; }
+  #ld-drawer-root .ld-inline-thread > .ld-inline-status { padding: 8px 0; }
 
   #ld-drawer-root .ld-inline-status {
     margin: 0;
     color: var(--primary-medium, #64748b);
     font-size: 12px;
+  }
+
+  #ld-drawer-root .ld-inline-thread > button {
+    justify-self: start;
+    margin: 4px 0;
   }
 
   #ld-drawer-root .ld-inline-thread > button,
@@ -2865,6 +2945,34 @@
   #ld-drawer-root .ld-inline-locate {
     margin-left: auto;
     flex-shrink: 0;
+  }
+
+  #ld-drawer-root .ld-post-number {
+    padding: 4px 6px;
+    border: 0;
+    background: transparent;
+    color: var(--primary-medium, #64748b);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #ld-drawer-root .ld-post-number:hover { color: var(--tertiary, #3b82f6); }
+
+  #ld-drawer-root .ld-post-number:focus-visible,
+  #ld-drawer-root .ld-post-info-item--replies-trigger:focus-visible {
+    outline: 2px solid var(--tertiary, #3b82f6);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 720px) {
+    #ld-drawer-root .ld-inline-thread { margin-left: 18px; padding-left: 12px; }
+    #ld-drawer-root .ld-inline-post .ld-inline-thread { margin-left: 6px; padding-left: 8px; }
+    #ld-drawer-root .ld-inline-thread > .ld-inline-post::before { left: -12px; width: 12px; }
+    #ld-drawer-root .ld-inline-post .ld-inline-thread > .ld-inline-post::before { left: -8px; width: 8px; }
+    #ld-drawer-root .ld-inline-post[data-thread-depth="2"] .ld-inline-thread { margin-left: 0; padding-left: 0; border-left: 0; }
+    #ld-drawer-root .ld-inline-post[data-thread-depth="2"] .ld-inline-post::before { display: none; }
+    #ld-drawer-root .ld-post-header { flex-wrap: wrap; gap: 8px; }
+    #ld-drawer-root .ld-post-author { flex: 1; }
+    #ld-drawer-root .ld-post-actions-left { gap: 0; }
   }
 
   #ld-drawer-root .ld-inline-post .ld-post-header { flex-wrap: wrap; gap: 8px; }
@@ -3709,12 +3817,15 @@
       currentLatestRepliesTopic: null,
       currentTopicFetchedAt: 0,
       currentTargetSpec: null,
+      threadTargetNeedsScroll: false,
       replyTargetPostNumber: null,
       replyTargetLabel: "",
       abortController: null,
       loadMoreAbortController: null,
       replyAbortController: null,
       inlineReplyControllers: new Map(),
+      inlineReplyObserver: null,
+      inlineReplyObservers: new Map(),
       directReplyCache: new Map(),
       replyParentCache: new Map(),
       topicCache: new Map(),
@@ -4074,18 +4185,18 @@
                 <label class="ld-setting-field">
                   <span class="ld-setting-label">回复展示</span>
                   <select class="ld-setting-control" data-setting="replyDisplay">
-                    <option value="inline">楼中楼展开</option>
-                    <option value="legacy">原有摘要浮层</option>
+                    <option value="inline">树形对话（过滤子回复）</option>
+                    <option value="legacy">普通楼层（按楼号阅读）</option>
                   </select>
-                  <span class="ld-setting-hint">楼中楼可就地阅读正文；摘要浮层点击后定位对应楼层</span>
+                  <span class="ld-setting-hint">树形仅展示顶层帖子，子回复自动展开；只看楼主时按楼层显示</span>
                 </label>
                 <label class="ld-setting-field">
-                  <span class="ld-setting-label">悬浮回复入口</span>
+                  <span class="ld-setting-label">底部回复入口</span>
                   <select class="ld-setting-control" data-setting="floatingReplyButton">
                     <option value="off">关闭</option>
                     <option value="on">开启</option>
                   </select>
-                  <span class="ld-setting-hint">开启后在智能预览和整页模式中都显示右侧悬浮快捷回复入口</span>
+                  <span class="ld-setting-hint">开启后在底部工具栏显示快捷回复入口</span>
                 </label>
                 <label class="ld-setting-field">
                   <span class="ld-setting-label">阅读状态</span>
@@ -4156,6 +4267,7 @@
             <div class="ld-drawer-body">
               <div class="ld-drawer-content"></div>
             </div>
+            <div class="ld-reading-tools" role="toolbar" aria-label="阅读工具">
             <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-refresh" type="button" aria-label="刷新当前帖子" title="刷新当前帖子" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
             </button>
@@ -4176,6 +4288,7 @@
               </span>
               <span class="ld-drawer-reply-fab-label">回复</span>
             </button>
+            </div>
             <div class="ld-drawer-reply-panel" id="ld-drawer-reply-panel" hidden>
               <div class="ld-reply-panel-head">
                 <div class="ld-reply-panel-title">回复主题</div>
@@ -4860,6 +4973,7 @@
       }
 
       const targetSpec = getTopicTargetSpec(topicUrl, topicIdHint);
+      if (entry.latestRepliesTopic?.__sidePeekTopLevel && (!isThreadMode() || targetSpec?.targetToken === "last")) return false;
       const view = entry.views?.get(getTopicViewKey(topicUrl));
       const savedTarget = view?.resolvedTargetPostNumber;
       const resolvedTarget = resolveTopicTargetPostNumber(targetSpec, entry.topic,
@@ -4867,6 +4981,12 @@
         (targetSpec?.targetToken && (topicHasPostNumber(entry.topic, savedTarget) || topicHasPostNumber(entry.latestRepliesTopic, savedTarget)) ? savedTarget : null);
       if ((shouldFetchTargetedTopic(entry.topic, targetSpec) && !resolvedTarget) ||
           (shouldLoadLatestRepliesTopic(entry.topic, targetSpec) && !entry.latestRepliesTopic)) {
+        return false;
+      }
+      if (isThreadMode() && (state.settings.postMode === "all" || resolvedTarget)
+          && (!entry.topic.__sidePeekThreadPrepared
+            || entry.topic.__sidePeekThreadTargetPath?.at(-1) !== (resolvedTarget || undefined)
+            || (entry.latestRepliesTopic && !entry.latestRepliesTopic.__sidePeekTopLevel))) {
         return false;
       }
       state.currentTopicIdHint = entry.topicIdHint || topicIdHint || state.currentTopicIdHint;
@@ -5343,6 +5463,7 @@
           resolvedTargetPostNumber = resolveTopicTargetPostNumber(targetSpec, topic, null);
         }
 
+        if (!isThreadMode() && latestRepliesTopic?.__sidePeekTopLevel) latestRepliesTopic = null;
         if (shouldLoadLatestRepliesTopic(topic, targetSpec) && !latestRepliesTopic) {
           if (targetSpec?.targetToken === "last" && targetedTopic) {
             latestRepliesTopic = targetedTopic;
@@ -5361,6 +5482,14 @@
         if (controller.signal.aborted || state.currentUrl !== topicUrl) {
           return;
         }
+
+        if (isThreadMode() && (state.settings.postMode === "all" || resolvedTargetPostNumber)) {
+          topic = await prepareThreadTopic(topic, topicUrl, resolvedTargetPostNumber, controller.signal);
+          if (latestRepliesTopic && !latestRepliesTopic.__sidePeekTopLevel) {
+            latestRepliesTopic = await fetchLatestRepliesTopic(topicUrl, controller.signal, topicIdHint);
+          }
+        }
+        if (controller.signal.aborted || state.currentUrl !== topicUrl) return;
 
         state.currentTopicFetchedAt = fetchedAt;
         renderTopic(topic, topicUrl, fallbackTitle, resolvedTargetPostNumber, {
@@ -5384,6 +5513,7 @@
 
     function renderTopic(topic, topicUrl, fallbackTitle, resolvedTargetPostNumber = null, options = {}) {
       tickReading();
+      cancelDirectRepliesRequest();
       setIframeModeEnabled(false);
 
       const posts = topic?.post_stream?.posts || [];
@@ -5410,6 +5540,7 @@
       topicBookmark.replaceChildren(...(firstPost ? [buildPostBookmarkButton(firstPost)] : []));
       topicBookmark.hidden = !firstPost || state.settings.enhancedBookmarks === "off";
       renderTopicMeta(topic, viewModel.posts.length);
+      state.threadTargetNeedsScroll = !shouldPreserveScroll || Boolean(options.revealTarget);
       state.content.replaceChildren(buildTopicView(topic, viewModel));
       syncLatestRepliesRefreshUI();
       syncReplyUI();
@@ -5459,7 +5590,7 @@
       let appendedCount = 0;
       for (const post of [...(fetchedPosts || [])].sort((a, b) => Number(a?.post_number || 0) - Number(b?.post_number || 0))) {
         const postNumber = Number(post?.post_number);
-        if (!Number.isFinite(postNumber) || existingPostNumbers.has(postNumber)) {
+        if (!Number.isFinite(postNumber) || existingPostNumbers.has(postNumber) || (isThreadMode() && !isThreadRootPost(post))) {
           continue;
         }
         existingPostNumbers.add(postNumber);
@@ -5490,7 +5621,7 @@
     function buildTopicView(topic, viewModel) {
       const wrapper = document.createElement("div");
       wrapper.className = "ld-topic-view";
-
+      wrapper.dataset.replyDisplay = isThreadMode() ? "inline" : "legacy";
       const visiblePosts = viewModel.posts;
       const basePosts = topic?.post_stream?.posts || [];
       const topicOwner = getTopicOwnerIdentity(topic);
@@ -5553,7 +5684,8 @@
     }
 
     function buildTopicViewModel(topic, latestRepliesTopic = null, targetSpec = null) {
-      const posts = topic?.post_stream?.posts || [];
+      const sourcePosts = topic?.post_stream?.posts || [];
+      const posts = isThreadMode() ? sourcePosts.filter(isThreadRootPost) : sourcePosts;
       const moreAvailable = hasMoreTopicPosts(topic);
 
       if (state.settings.postMode === "first" && !targetSpec?.targetPostNumber) {
@@ -5604,7 +5736,7 @@
 
       if (latestRepliesTopic) {
         return applyAuthorFilterToViewModel({
-          posts: getLatestRepliesDisplayPosts(topic, latestRepliesTopic),
+          posts: getLatestRepliesDisplayPosts(topic, latestRepliesTopic).filter((post) => !isThreadMode() || isThreadRootPost(post)),
           mode: "latestWindow",
           canAutoLoadMore: false,
           hasHiddenPosts: moreAvailable
@@ -5735,11 +5867,20 @@
 
       authorBlock.append(authorRow, meta);
       header.append(avatarElement, authorBlock);
+      article.dataset.threadPostNumber = String(post.post_number);
       if (inline) {
+        article.dataset.threadDepth = String(Math.min(ancestors.length - 1, 3));
+        const depth = document.createElement("span");
+        depth.className = "ld-thread-depth-label";
+        depth.textContent = `第 ${ancestors.length - 1} 层`;
+        authorRow.append(depth);
+      }
+      {
         const locate = document.createElement("button");
         locate.type = "button";
-        locate.className = "ld-inline-locate";
-        locate.textContent = `#${post.post_number} · 定位原楼`;
+        locate.className = "ld-inline-locate ld-post-number";
+        locate.textContent = `#${post.post_number}`;
+        locate.setAttribute("aria-label", `定位第 ${post.post_number} 楼`);
         locate.addEventListener("click", () => navigateToPost(post.post_number));
         header.append(locate);
       }
@@ -5880,7 +6021,21 @@
         article.append(header, body);
       }
       article.appendChild(actions);
-      if (postInfos?.inlineThread) article.append(postInfos.inlineThread);
+      if (postInfos?.inlineThread) {
+        article.append(postInfos.inlineThread);
+        const path = state.currentTopic?.__sidePeekThreadTargetPath || [];
+        const index = path.indexOf(post.post_number);
+        if (index >= 0 && index < path.length - 1) {
+          requestAnimationFrame(() => {
+            if (article.isConnected) postInfos.openThread();
+          });
+        }
+      }
+      if (isThreadMode() && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
+        requestAnimationFrame(() => {
+          if (article.isConnected) article.scrollIntoView({ block: "center", behavior: "auto" });
+        });
+      }
       if (!post.deleted && (post.can_boost || post.boosts?.length)) {
         const boosts = document.createElement("div");
         boosts.className = "ld-post-boosts";
@@ -6583,7 +6738,7 @@
           refreshIframeAfterCreatedReply(createdPost);
           showToast("回复已发送", "success");
         } else {
-          appendCreatedReplyToCurrentTopic(createdPost);
+          await appendCreatedReplyToCurrentTopic(createdPost);
         }
         setReplyPanelOpen(false);
       } catch (error) {
@@ -6702,6 +6857,8 @@
     function cancelDirectRepliesRequest() {
       for (const controller of state.inlineReplyControllers.keys()) controller.abort();
       state.inlineReplyControllers.clear();
+      state.inlineReplyObserver?.disconnect();
+      state.inlineReplyObservers.clear();
     }
 
     function cancelReplyRequest() {
@@ -6735,13 +6892,17 @@
       }
 
       if (hasMoreTopicPosts(state.currentTopic)) {
-        const loadedCount = (state.currentTopic.post_stream?.posts || []).length;
-        const totalCount = state.currentTopic.posts_count || loadedCount;
+        const isTree = isThreadMode();
+        const loadedCount = (state.currentTopic.post_stream?.posts || []).filter((p) => !isTree || isThreadRootPost(p)).length;
+        const totalCount = isTree && state.currentTopic.__sidePeekRootStream
+          ? state.currentTopic.__sidePeekRootStream.length + (state.currentTopic.__sidePeekRootStream.includes(getFirstTopicPost(state.currentTopic)?.id) ? 0 : 1)
+          : state.currentTopic.posts_count || loadedCount;
         state.loadMoreStatus.textContent = `已加载 ${loadedCount} / ${totalCount}，继续下滑自动加载更多`;
         return;
       }
 
-      state.loadMoreStatus.textContent = "已加载完当前主题内容";
+      state.loadMoreStatus.textContent = isThreadMode()
+        ? "顶层帖子已显示完，回复会随阅读自动展开" : "已加载完当前主题内容";
     }
 
     function initializePostCarousels(body) {
@@ -7234,7 +7395,7 @@
       const loadedPosts = state.currentTopic.post_stream?.posts || [];
       const knownLatestPost = state.currentTargetSpec?.targetToken === "last"
         ? state.currentResolvedTargetPostNumber
-        : (latestPosts.length || topicHasCompletePostStream(state.currentTopic)
+        : (latestPosts.length || topicHasCompleteUnfilteredStream(state.currentTopic)
           ? [...latestPosts, ...loadedPosts].reduce((latest, post) => Math.max(latest, Number(post?.post_number) || 0), 0)
           : null);
       const target = knownLatestPost
@@ -7295,7 +7456,11 @@
         const needsLatestRepliesReload = shouldLoadLatestRepliesTopic(state.currentTopic, targetSpec)
           && !state.currentLatestRepliesTopic;
 
-        if (!needsTargetReload && !needsLatestRepliesReload) {
+        const needsThreadReload = isThreadMode() && (state.settings.postMode === "all" || state.currentResolvedTargetPostNumber)
+          && (!state.currentTopic.__sidePeekThreadPrepared
+            || state.currentTopic.__sidePeekThreadTargetPath?.at(-1) !== (state.currentResolvedTargetPostNumber || undefined));
+        const needsOrdinaryReload = !isThreadMode() && state.currentLatestRepliesTopic?.__sidePeekTopLevel;
+        if (!needsTargetReload && !needsLatestRepliesReload && !needsThreadReload && !needsOrdinaryReload) {
           renderTopic(state.currentTopic, state.currentUrl, state.currentFallbackTitle, state.currentResolvedTargetPostNumber, {
             latestRepliesTopic: state.currentLatestRepliesTopic,
             targetSpec
@@ -7460,7 +7625,8 @@
     async function fetchLatestRepliesTopic(topicUrl, signal, topicIdHint = null) {
       return fetchTrackedTopicJson(getLatestRepliesTopicUrl(topicUrl, topicIdHint), signal, topicIdHint, {
         canonical: false,
-        trackVisit: false
+        trackVisit: false,
+        topLevel: isThreadMode()
       });
     }
 
@@ -7476,7 +7642,7 @@
     }
 
     function toTopicJsonUrl(topicUrl, options = {}) {
-      const { canonical = false, trackVisit = true, topicIdHint = null } = options;
+      const { canonical = false, trackVisit = true, topicIdHint = null, topLevel = false } = options;
       const url = new URL(topicUrl);
       const parsed = parseTopicPath(url.pathname, topicIdHint);
 
@@ -7486,13 +7652,14 @@
       if (trackVisit) {
         url.searchParams.set("track_visit", "true");
       }
+      if (topLevel) url.searchParams.set("filter_top_level_replies", "true");
       return url.toString();
     }
 
     async function fetchTrackedTopicJson(topicUrl, signal, topicIdHint = null, options = {}) {
-      const { canonical = false, trackVisit = true } = options;
+      const { canonical = false, trackVisit = true, topLevel = false } = options;
       const topicId = topicIdHint || getTopicIdFromUrl(topicUrl);
-      const response = await fetch(toTopicJsonUrl(topicUrl, { canonical, trackVisit, topicIdHint }), {
+      const response = await fetch(toTopicJsonUrl(topicUrl, { canonical, trackVisit, topicIdHint, topLevel }), {
         credentials: "include",
         cache: "no-store",
         signal,
@@ -7505,7 +7672,54 @@
         throw new Error(`Unexpected response: ${response.status}`);
       }
 
-      return response.json();
+      const topic = await response.json();
+      if (topLevel) topic.__sidePeekTopLevel = true;
+      return topic;
+    }
+
+    function isThreadMode() {
+      return state.settings.replyDisplay === "inline" && state.settings.authorFilter === "all";
+    }
+
+    function isThreadRootPost(post) {
+      return post?.post_number === 1 || !(Number(post?.reply_to_post_number) > 1);
+    }
+
+    async function prepareThreadTopic(topic, topicUrl, targetNumber, signal) {
+      // 顶层流独立保存，普通模式与缓存仍保留完整主题数据。
+      if (!topic.__sidePeekRootStream && getNextTopicPostIds(topic, 1).length) {
+        const roots = await fetchTrackedTopicJson(topicUrl, signal, topic.id, {
+          canonical: true, trackVisit: false, topLevel: true
+        });
+        topic = mergeTopicPreviewData(topic, roots);
+        topic.__sidePeekRootStream = getTopicStreamIds(roots);
+      }
+      const path = [];
+      let post = topic.post_stream.posts.find((p) => p.post_number === targetNumber);
+      while (post && !path.includes(post.post_number)) {
+        path.unshift(post.post_number);
+        if (isThreadRootPost(post)) break;
+        const number = post.reply_to_post_number;
+        let parent = topic.post_stream.posts.find((p) => p.post_number === number) || state.replyParentCache.get(number);
+        if (!parent) {
+          const response = await fetch(`/posts/by_number/${topic.id}/${number}`, {
+            credentials: "include", signal, headers: { Accept: "application/json" }
+          });
+          if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("无法读取回复上下文");
+          parent = await response.json();
+          if (parent?.post_number !== number || (parent.topic_id && parent.topic_id !== topic.id) || typeof parent.cooked !== "string") {
+            throw new Error("回复上下文不可用");
+          }
+          topic = mergeTopicPreviewData(topic, { post_stream: { posts: [parent] } });
+        }
+        if (!topic.post_stream.posts.some((p) => p.post_number === parent.post_number)) {
+          topic = mergeTopicPreviewData(topic, { post_stream: { posts: [parent] } });
+        }
+        if (!(parent.reply_count > 0)) parent.reply_count = 1;
+        if (parent.post_number >= post.post_number) throw new Error("回复层级不可用");
+        post = parent;
+      }
+      return { ...topic, __sidePeekThreadPrepared: true, __sidePeekThreadTargetPath: path };
     }
 
     function ensureTrackedTopicVisit(topicUrl, topicIdHint = null, signal) {
@@ -9817,7 +10031,8 @@
     }
 
     function getNextTopicPostIds(topic, batchSize = LOAD_MORE_BATCH_SIZE) {
-      const streamIds = getTopicStreamIds(topic);
+      const streamIds = isThreadMode() && topic?.__sidePeekRootStream
+        ? topic.__sidePeekRootStream : getTopicStreamIds(topic);
       if (!streamIds.length) {
         return [];
       }
@@ -9831,6 +10046,7 @@
         return true;
       }
 
+      if (isThreadMode() && topic?.__sidePeekRootStream) return false;
       const posts = topic?.post_stream?.posts || [];
       const totalPosts = Number(topic?.posts_count || 0);
       return totalPosts > 0 && posts.length < totalPosts;
@@ -9872,10 +10088,16 @@
       }
 
       if (targetSpec.targetToken === "last") {
-        return !topicHasCompletePostStream(topic);
+        return !topicHasCompleteUnfilteredStream(topic);
       }
 
       return true;
+    }
+
+    function topicHasCompleteUnfilteredStream(topic) {
+      const loaded = new Set(getLoadedTopicPostIds(topic));
+      return getTopicStreamIds(topic).every((id) => loaded.has(id))
+        && loaded.size >= Number(topic?.posts_count || 0);
     }
 
     function topicHasCompletePostStream(topic) {
@@ -9904,7 +10126,7 @@
       }
 
       const fallbackPosts = topic?.post_stream?.posts || [];
-      if (targetSpec.targetToken === "last" && topicHasCompletePostStream(topic) && fallbackPosts.length > 0) {
+      if (targetSpec.targetToken === "last" && topicHasCompleteUnfilteredStream(topic) && fallbackPosts.length > 0) {
         return fallbackPosts[fallbackPosts.length - 1]?.post_number || null;
       }
 
@@ -9962,7 +10184,7 @@
       };
     }
 
-    function appendCreatedReplyToCurrentTopic(createdPost) {
+    async function appendCreatedReplyToCurrentTopic(createdPost) {
       if (!state.currentTopic || !createdPost || typeof createdPost !== "object") {
         return;
       }
@@ -9974,7 +10196,7 @@
       }
 
       const previousScrollTop = state.drawerBody?.scrollTop || 0;
-      const nextTopic = mergeTopicPreviewData(state.currentTopic, {
+      let nextTopic = mergeTopicPreviewData(state.currentTopic, {
         posts_count: Math.max(
           Number(state.currentTopic.posts_count || 0),
           Number(createdPost.topic_posts_count || 0),
@@ -9986,9 +10208,35 @@
         }
       });
 
-      renderTopic(nextTopic, state.currentUrl, state.currentFallbackTitle, null, {
+      if (isThreadMode()) {
+        if (isThreadRootPost(createdPost) && nextTopic.__sidePeekRootStream) {
+          nextTopic.__sidePeekRootStream = [...nextTopic.__sidePeekRootStream, createdPostId];
+        }
+        const parentNumber = createdPost.reply_to_post_number;
+        const parent = nextTopic.post_stream.posts.find((p) => p.post_number === parentNumber)
+          || state.replyParentCache.get(parentNumber);
+        if (parent) {
+          nextTopic = { ...nextTopic, post_stream: { ...nextTopic.post_stream,
+            posts: [...nextTopic.post_stream.posts.filter((p) => p.post_number !== parentNumber),
+              { ...parent, reply_count: (parent.reply_count || 0) + 1 }].sort((a, b) => a.post_number - b.post_number) } };
+        }
+        state.directReplyCache.delete(parentNumber);
+        const currentUrl = state.currentUrl;
+        const controller = new AbortController();
+        state.inlineReplyControllers.set(controller, state.content);
+        try {
+          nextTopic = await prepareThreadTopic(nextTopic, currentUrl, createdPostNumber, controller.signal);
+        } catch {
+          if (!controller.signal.aborted) showToast("回复已发送，暂时无法加载完整对话；可在原帖查看。", "info");
+        } finally {
+          state.inlineReplyControllers.delete(controller);
+        }
+        if (controller.signal.aborted || state.currentUrl !== currentUrl) return;
+      }
+      renderTopic(nextTopic, state.currentUrl, state.currentFallbackTitle, createdPostNumber, {
         targetSpec: state.currentTargetSpec,
-        preserveScrollTop: previousScrollTop
+        preserveScrollTop: previousScrollTop,
+        revealTarget: true
       });
 
       requestAnimationFrame(() => {
@@ -10090,7 +10338,7 @@
         return false;
       }
 
-      const target = state.content?.querySelector(`.ld-post-card[data-post-number="${numericPostNumber}"]`);
+      const target = state.content?.querySelector(`[data-thread-post-number="${numericPostNumber}"]`);
       if (target) {
         target.scrollIntoView({ block: "start", behavior: "smooth" });
         return true;
@@ -10278,8 +10526,8 @@
       const trigger = document.createElement("button");
       trigger.type = "button";
       trigger.className = "ld-reply-to-tab";
-      if (state.settings.replyDisplay === "legacy") {
-        trigger.textContent = `回复 ${label}`;
+      if (!isThreadMode() || ancestors.includes(number) || number === 1) {
+        trigger.textContent = isThreadMode() ? `回复 ${label} · #${number}` : `回复 ${label}`;
         trigger.setAttribute("aria-label", `跳转到被回复的帖子：${label}`);
         trigger.addEventListener("click", () => navigateToPost(number));
         return trigger;
@@ -10388,8 +10636,18 @@
       return row;
     }
 
+    function loadVisibleInlineReplies() {
+      for (const [region, entry] of state.inlineReplyObservers) {
+        if (state.inlineReplyControllers.size >= 3) break;
+        if (!entry.visible || !region.isConnected) continue;
+        state.inlineReplyObservers.delete(region);
+        state.inlineReplyObserver.unobserve(region);
+        entry.open();
+      }
+    }
+
     // 收起时移除正文节点，让原站组件释放实例；重新展开复用已加载的数据。
-    function bindInlineReplyExpansion(trigger, region, load) {
+    function bindInlineReplyExpansion(trigger, region, load, autoExpand = false) {
       region.hidden = true;
       region.setAttribute("role", "region");
       region.setAttribute("aria-label", trigger.getAttribute("aria-label"));
@@ -10410,12 +10668,21 @@
         const current = controller;
         state.inlineReplyControllers.set(current, region);
         region.hidden = false;
-        trigger.setAttribute("aria-expanded", "true");
+        if (!autoExpand) trigger.setAttribute("aria-expanded", "true");
         region.setAttribute("aria-busy", "true");
         const status = document.createElement("p");
         status.className = "ld-inline-status";
         status.setAttribute("role", "status");
         status.textContent = "正在加载回复…";
+        for (const [active, target] of state.inlineReplyControllers) {
+          if (target !== region && region.contains(target)) active.abort();
+        }
+        for (const target of state.inlineReplyObservers.keys()) {
+          if (target !== region && region.contains(target)) {
+            state.inlineReplyObserver?.unobserve(target);
+            state.inlineReplyObservers.delete(target);
+          }
+        }
         if (!more) region.replaceChildren();
         region.querySelector(":scope > .ld-inline-collapse")?.remove();
         region.append(status);
@@ -10433,12 +10700,13 @@
           region.append(retry);
         } finally {
           state.inlineReplyControllers.delete(current);
+          queueMicrotask(loadVisibleInlineReplies);
           if (controller === current) {
             controller = null;
             region.removeAttribute("aria-busy");
           }
         }
-        if (!current.signal.aborted && region.isConnected) {
+        if (!autoExpand && !current.signal.aborted && region.isConnected) {
           const close = document.createElement("button");
           close.type = "button";
           close.className = "ld-inline-collapse";
@@ -10447,12 +10715,32 @@
           region.append(close);
         }
       };
-      trigger.addEventListener("click", () => {
-        if (region.hidden) {
-          if (region.classList.contains("ld-post-replies-popover")) closeAllPopovers();
-          void render();
-        } else collapse();
-      });
+      if (autoExpand) {
+        region.hidden = false;
+        trigger.removeAttribute("aria-expanded");
+        const status = document.createElement("p");
+        status.className = "ld-inline-status";
+        status.textContent = "正在准备对话…";
+        region.append(status);
+        if (!state.inlineReplyObserver) {
+          state.inlineReplyObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              const pending = state.inlineReplyObservers.get(entry.target);
+              if (pending) pending.visible = entry.isIntersecting;
+            }
+            loadVisibleInlineReplies();
+          }, { root: state.drawerBody, rootMargin: "200px 0px" });
+        }
+        state.inlineReplyObservers.set(region, { visible: false, open: () => void render() });
+        state.inlineReplyObserver.observe(region);
+      } else {
+        trigger.addEventListener("click", () => {
+          if (region.hidden) {
+            if (region.classList.contains("ld-post-replies-popover")) closeAllPopovers();
+            void render();
+          } else collapse();
+        });
+      }
       region.addEventListener("click", (event) => {
         if (event.target instanceof Element && event.target.closest(".ld-inline-more")?.parentElement === region) {
           event.stopPropagation();
@@ -10461,24 +10749,36 @@
           void render(true);
         }
       });
+      return () => {
+        state.inlineReplyObserver?.unobserve(region);
+        state.inlineReplyObservers.delete(region);
+        return render();
+      };
     }
 
     function buildPostReplyStatWrap(parentPost, item, ancestors) {
       const wrap = document.createElement("div");
       wrap.className = "ld-post-replies-stat-wrap";
-      const trigger = document.createElement("button");
-      trigger.type = "button";
-      trigger.className = "ld-post-info-item ld-post-info-item--replies-trigger";
-      trigger.setAttribute("aria-label", `展开第 ${parentPost.post_number} 楼的 ${item.count} 条直接回复`);
-      trigger.textContent = `${item.count} 条回复 ▾`;
+      const isLegacy = !isThreadMode();
+      const trigger = document.createElement(isLegacy ? "button" : "span");
+      if (isLegacy) trigger.type = "button";
+      trigger.className = isLegacy ? "ld-post-info-item ld-post-info-item--replies-trigger" : "ld-post-info-item ld-thread-reply-count";
+      trigger.setAttribute("aria-label", `${isLegacy ? "展开" : ""}第 ${parentPost.post_number} 楼的 ${item.count} 条直接回复`);
+      trigger.textContent = `${item.count} 条回复${isLegacy ? " ▾" : ""}`;
       const region = document.createElement("div");
-      const isLegacy = state.settings.replyDisplay === "legacy";
       region.className = isLegacy ? "ld-post-replies-popover" : "ld-inline-thread";
       if (isLegacy) trigger.setAttribute("aria-haspopup", "true");
       const topic = state.currentTopic;
-      bindInlineReplyExpansion(trigger, region, async (signal, more) => {
+      wrap.openThread = bindInlineReplyExpansion(trigger, region, async (signal, more) => {
         const number = parentPost.post_number;
         let cached = state.directReplyCache.get(number);
+        const path = topic.__sidePeekThreadTargetPath || [];
+        const nextNumber = path[path.indexOf(number) + 1];
+        if (!isLegacy && path.includes(number) && nextNumber) {
+          const child = topic.post_stream.posts.find((p) => p.post_number === nextNumber);
+          if (child) cached = { posts: [...(cached?.posts || []).filter((p) => p.post_number !== nextNumber), child].sort((a, b) => a.post_number - b.post_number),
+            after: cached?.after || 1, complete: cached?.complete || false };
+        }
         if (!cached || (more && !cached.complete)) {
           const after = cached?.after || 1;
           const response = await fetch(`/posts/${parentPost.id}/replies?after=${after}`, {
@@ -10501,12 +10801,13 @@
         }
         const nodes = cached.posts.filter((p) => !ancestors.includes(p.post_number))
           .map((p) => isLegacy ? buildPostReplyPreviewRow(p) : buildPostCard(p, getTopicOwnerIdentity(topic), { ancestors }));
+        if (cached) state.directReplyCache.set(number, cached);
         const summary = document.createElement("p");
         summary.className = "ld-inline-status";
         summary.textContent = cached.posts.length
           ? `已显示 ${cached.posts.length} / ${parentPost.reply_count} 条直接回复`
           : "暂无可显示的直接回复，相关帖子可能已被删除。";
-        nodes.unshift(summary);
+        if (!cached.complete || !cached.posts.length) nodes.unshift(summary);
         if (!cached.complete) {
           const moreButton = document.createElement("button");
           moreButton.type = "button";
@@ -10515,7 +10816,7 @@
           nodes.push(moreButton);
         }
         return nodes;
-      });
+      }, !isLegacy);
       wrap.append(trigger);
       if (isLegacy) wrap.append(region);
       else wrap.inlineThread = region;
@@ -10523,7 +10824,7 @@
     }
 
     function buildPostInfos(post, ancestors) {
-      if (!(post.reply_count > 0)) return null;
+      if (!(post.reply_count > 0) || (isThreadMode() && post.post_number === 1)) return null;
       return buildPostReplyStatWrap(post, { count: post.reply_count }, ancestors);
     }
 
