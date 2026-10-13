@@ -33,7 +33,7 @@ try {
     window.makePost = (number, parent = null, count = 0) => ({
       id:100+number, topic_id:1, post_number:number, username:'user'+number, name:'用户 '+number,
       created_at:'2026-01-01T00:00:00Z', reply_to_post_number:parent, reply_to_user:parent ? {username:'user'+parent} : null,
-      reply_count:count, cooked:'<p>第 '+number+' 楼正文：在这里连续阅读对话，保留清晰的回复关系。</p><p><a href="https://linux.do/latest">正文链接</a></p>', actions_summary:[]
+      can_boost:[2,3].includes(number), boosts:[], reply_count:count, cooked:'<p>第 '+number+' 楼正文：在这里连续阅读对话，保留清晰的回复关系。</p><p><a href="https://linux.do/latest">正文链接</a></p>', actions_summary:[]
     });
     window.replyTopic = {id:1,title:'树形对话测试主题',posts_count:9,
       post_stream:{posts:[makePost(1,null,1),makePost(2,1,3),makePost(5,3),makePost(9,null,1)],
@@ -48,13 +48,14 @@ try {
         if (replyPending && url.pathname === '/posts/109/replies') return new Promise(resolve => {request.resolve=resolve;});
         if (replyFail && url.pathname === '/posts/109/replies') return new Response('{}',{status:503,headers:{'content-type':'application/json'}});
         if (url.pathname === '/posts/by_number/1/3') return json(makePost(3,2,2));
-        if (url.pathname === '/posts/102/replies') return json(request.after === '1' ? [makePost(3,2,2)] : request.after === '3' ? [makePost(3,2,2),makePost(6,2)] : [makePost(6,2),makePost(7,2)]);
+        if (url.pathname === '/posts/102/replies') return json(request.after === '1' ? [Object.fromEntries(Object.entries(makePost(3,2,2)).filter(([key]) => !['can_boost','boosts'].includes(key)))] : request.after === '3' ? [makePost(3,2,2),makePost(6,2)] : [makePost(6,2),makePost(7,2)]);
         if (url.pathname === '/posts/103/replies') return json([makePost(4,3,1),makePost(5,3)]);
         if (url.pathname === '/posts/104/replies') return json([makePost(8,4,1)]);
         if (url.pathname === '/posts/108/replies') return json([makePost(10,8)]);
         return json([]);
       }
-      if (url.pathname.endsWith('/posts.json')) return json({post_stream:{posts:[makePost(11)]}});
+      if (url.pathname.endsWith('/posts.json')) return json({post_stream:{posts:url.searchParams.getAll('post_ids[]').map(id=>makePost(Number(id)-100,Number(id)===103?2:null,Number(id)===103?2:0))}});
+      if (url.pathname.startsWith('/t/test/2')) return json({id:2,title:'另一个主题',posts_count:1,post_stream:{posts:[{...makePost(1),topic_id:2}],stream:[101]}});
       if (request.topLevel === 'true') return json({...replyTopic,post_stream:{posts:[makePost(2,1,3),makePost(9,null,1)],stream:[102,109,111]}});
       return json(replyTopic);
     };
@@ -90,6 +91,9 @@ try {
     check(!region.hidden && region.querySelector('.ld-inline-post'), '树形没有默认展开');
     check(!s.content.querySelector('.ld-reading-mode') && !s.content.querySelector('.ld-inline-collapse') && !root.querySelector('.ld-post-info-item--replies-trigger'), '正文仍有切换或展开/收起按钮');
     const child=region.querySelector('.ld-inline-post');
+    check(root.querySelector(':scope > .ld-post-boosts').compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,'父楼 Boost 在子回复之后');
+    check(child.querySelector(':scope > .ld-post-boosts'),'子回复缺少 Boost 入口');
+    check(replyRequests.some(r=>r.path==='/t/1/posts.json' && new URLSearchParams(r.options.body).size===0),'未补取完整子楼');
     check(child.querySelector('.ld-post-body').textContent.includes('第 3 楼正文'), '没有完整正文');
     const link=child.querySelector('.ld-post-body a');
     check(link.target==='_blank' && link.rel==='noopener noreferrer','正文链接属性丢失');
@@ -137,18 +141,20 @@ try {
   console.log(evaluate(`(async () => {
     const s=replyTest.state;
     s.replyParentCache.clear();s.directReplyCache.clear();
-    s.settings.postMode='first';replyTest.navigateToPost(5);await settle();await new Promise(r=>setTimeout(r,100));await settle();
+    replyTest.navigateToPost(5);await settle();await new Promise(r=>setTimeout(r,100));await settle();
     check(replyRequests.some(r=>r.path==='/posts/by_number/1/3'),'深链接未补祖先');
     check(s.content.querySelectorAll('[data-thread-post-number="5"]').length===1,'目标重复或没有展开');
     check(s.content.querySelector('[data-thread-post-number="2"] [data-thread-post-number="3"] [data-thread-post-number="5"]'),'目标不在祖先树中');
-    check(!s.content.querySelector('.ld-post-card[data-post-number="5"]'),'定位临时插入重复主楼');s.settings.postMode='all';
-    const parentRegion=s.content.querySelector('[data-thread-post-number="3"] > .ld-inline-thread');
+    check(!s.content.querySelector('.ld-post-card[data-post-number="5"]'),'定位临时插入重复主楼');const parentRegion=s.content.querySelector('[data-thread-post-number="3"] > .ld-inline-thread');
     parentRegion.querySelector('.ld-inline-more').click();await settle();
     check(s.content.querySelectorAll('[data-thread-post-number="5"]').length===1,'目标路径补分页后重复');
-    s.settings.authorFilter='topicOwner';
     const ownerTopic={...s.currentTopic,created_by:{username:'user5'}};
+    const original=s.currentTopic.created_by;s.currentTopic.created_by=ownerTopic.created_by;
+    s.authorFilterButton.click();await settle();
+    check(s.authorFilter==='topicOwner' && s.authorFilterButton.getAttribute('aria-pressed')==='true','楼主筛选未开启或无选中状态');
     check(replyTest.buildTopicViewModel(ownerTopic,null,null).posts.some(p=>p.post_number===5),'只看楼主漏掉子回复');
-    s.settings.authorFilter='all';
+    s.authorFilterButton.click();await settle();s.currentTopic.created_by=original;
+    check(s.authorFilter==='all' && !replyTest.loadSettings().authorFilter,'筛选未恢复全部或写入持久设置');
     const vm=replyTest.buildTopicViewModel(s.currentTopic,null,{targetPostNumber:5});
     check(vm.posts.every(p=>p.post_number===1 || !(p.reply_to_post_number>1)),'视图模型未过滤');
     s.directReplyCache.delete(9);replyPending=true;replyTest.refreshCurrentView();
@@ -166,11 +172,33 @@ try {
     await changeMode('inline');check(s.content.querySelector('[data-thread-post-number="5"]'),'切回后定位丢失');
     await changeMode('legacy');replyTest.resetSettings();await settle();
     check(s.settings.replyDisplay==='inline' && replyTest.loadSettings().replyDisplay==='inline','恢复默认失败');
-    const saved=localStorage.getItem('ld-drawer-settings-v1');localStorage.setItem('ld-drawer-settings-v1','{"replyDisplay":"bad"}');
+    check(!s.settingsPanel.querySelector('[data-setting="postMode"],[data-setting="authorFilter"],[data-setting="floatingReplyButton"],[data-setting="trackPreviewVisit"],[data-setting="drawerWidth"]'),'废弃设置未移除');
+    const saved=localStorage.getItem('ld-drawer-settings-v1');
+    for(const width of ['narrow','medium','wide','custom']) {
+      localStorage.setItem('ld-drawer-settings-v1',JSON.stringify({postMode:'first',authorFilter:'topicOwner',floatingReplyButton:'off',trackPreviewVisit:'off',drawerWidth:width,drawerWidthCustom:650}));
+      const migrated=replyTest.loadSettings();
+      check(['postMode','authorFilter','floatingReplyButton','trackPreviewVisit','drawerWidth'].every(k=>!(k in migrated)),'旧设置仍生效');
+      check(migrated.drawerWidthCustom===({narrow:435,medium:538,wide:666,custom:650}[width]),'旧宽度未保留');
+    }
+    localStorage.setItem('ld-drawer-settings-v1',saved);
+    const capture=s.resizeHandle.setPointerCapture;s.resizeHandle.setPointerCapture=()=>{};
+    s.resizeHandle.dispatchEvent(new PointerEvent('pointerdown',{button:0,clientX:680,bubbles:true}));
+    document.dispatchEvent(new PointerEvent('pointermove',{clientX:630,bubbles:true}));
+    document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
+    s.resizeHandle.setPointerCapture=capture;
+    check(s.settings.drawerWidthCustom===650 && replyTest.loadSettings().drawerWidthCustom===650,'拖拽宽度未保存');
+    check(!s.replyFabButton.hidden && s.reading,'固定回复入口或阅读同步未开启');
+    localStorage.setItem('ld-drawer-settings-v1','{"replyDisplay":"bad"}');
     check(replyTest.loadSettings().replyDisplay==='inline','非法值未回退');localStorage.setItem('ld-drawer-settings-v1',saved);
     await replyTest.appendCreatedReplyToCurrentTopic(makePost(12,5));await settle();
     check(s.content.querySelector('[data-thread-post-number="5"] [data-thread-post-number="12"]'),'发送后未展开新回复');
     check(s.content.querySelectorAll('[data-thread-post-number="12"]').length===1,'新回复重复');
+    s.authorFilterButton.click();await settle();document.querySelector('.ld-drawer-close').click();
+    document.querySelector('#main-outlet a[href="/t/test/1"]').click();await settle();
+    check(s.authorFilter==='all','关闭重开保留了临时筛选');
+    s.authorFilterButton.click();await settle();document.querySelector('#main-outlet a[href="/t/test/2"]').click();await settle();
+    check(s.authorFilter==='all' && s.currentTopic.id===2,'新主题不是默认全部作者');
+    document.querySelector('#main-outlet a[href="/t/test/1"]').click();await settle();
     return '深链接祖先补取/展开、路径分页去重、普通模式/设置切换及发送后子树显示：通过';
   })()`).trim());
   evaluate(`replyTest.state.currentUrl='https://linux.do/t/test/1';replyTest.state.currentResolvedTargetPostNumber=null;replyTest.state.topicCache.clear();replyTest.state.directReplyCache.clear();`);
@@ -190,10 +218,16 @@ try {
         if(!node.getClientRects().length) continue;const box=node.getBoundingClientRect();
         check(box.left>=rect.left && box.right<=rect.right+1,'帖子或按钮溢出');
       }
+      const tools=s.root.querySelector('.ld-reading-tools').getBoundingClientRect();
+      const buttons=[s.authorFilterButton,s.latestRepliesRefreshButton,s.topicSearchButton,s.topFabButton,s.bottomFabButton,s.replyFabButton].map(b=>b.getBoundingClientRect());
+      check(buttons.every(b=>b.width>0 && b.left>=tools.left && b.right<=tools.right && b.top>=tools.top && b.bottom<=tools.bottom),'底部工具栏按钮溢出或不可见');
+      check(buttons[0].right<=buttons[1].left,'筛选未在刷新左侧');
       const nested=s.content.querySelector('[data-thread-post-number="10"]');check(nested && nested.getBoundingClientRect().width>180,'深层正文过窄');
       const level3=s.content.querySelector('[data-thread-post-number="8"]');check(level3.getBoundingClientRect().width-nested.getBoundingClientRect().width<4,'深层缩进没有停止');
       return '树形/按钮边界：通过（${width}px）';})()`).trim());
     shot(`tree-${width}`);
+    evaluate(`replyTest.state.settingsToggle.click()`);shot(`settings-${width}`);
+    evaluate(`replyTest.state.settingsCloseButton.click()`);
     evaluate(`replyTest.state.content.querySelector('.ld-inline-post .ld-inline-post').scrollIntoView({block:'center'})`);shot(`tree-nested-${width}`);
     evaluate(`(async()=>{await changeMode('legacy');replyTest.state.drawerBody.scrollTop=0;})()`);shot(`ordinary-${width}`);
     evaluate(`changeMode('inline')`);

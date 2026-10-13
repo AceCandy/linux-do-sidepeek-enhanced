@@ -74,6 +74,16 @@ try {
     return '标签并入标题信息、首帖紧凑布局和一次性可关闭悬浮说明：通过';
   })()`).trim());
   run(['wait','--fn','!document.querySelector(".ld-toast-dismissible")']);
+  for(const shortcut of ["Control+f","Meta+f"]) {
+    run(["press",shortcut]);
+    console.log(evaluate(`(() => {
+      const s=previewTest.state;
+      if(s.topicSearchPanel.hidden || document.activeElement!==s.topicSearchInput) throw Error('实际键盘快捷键未打开帖内搜索');
+      return '帖内搜索实际键盘 ${shortcut}：通过';
+    })()`).trim());
+    run(["press","Escape"]);
+    evaluate(`if(!previewTest.state.topicSearchPanel.hidden) throw Error('Esc 未关闭快捷搜索')`);
+  }
   for (const width of [1280, 390]) {
     run(['set','viewport',String(width),'800']);
     console.log(evaluate(`(() => {
@@ -211,14 +221,10 @@ try {
     if (s.trustPanel.hidden || document.body.classList.contains('ld-list-align-left') || saved.showTrustStatus !== 'on' || saved.listAlignLeft !== 'off') throw Error('恢复默认未重置等级和列表布局');
     return '恢复默认同步设置、等级可见性和列表布局：通过';
   })()`));
-  run(['click', '.ld-drawer-settings-toggle']);
-  run(["select", '[data-setting="trackPreviewVisit"]', "off"]);
-  evaluate("window.readsAfterOff = window.requests.filter(r => r.method === 'POST').length");
-  // 等待超过一轮阅读批次，确认关闭设置后不再发送。
-  run(["wait", "6000"]);
   console.log(evaluate(`(() => {
-    if (window.previewTest.state.reading || window.requests.filter(r => r.method === "POST").length !== window.readsAfterOff) throw Error("关闭设置后仍上报");
-    return "阅读设置关闭后停止上报：通过";
+    const s=previewTest.state;
+    if (!s.reading || s.settingsPanel.querySelector('[data-setting="trackPreviewVisit"]')) throw Error('阅读未默认同步或遗留开关');
+    return "阅读进度始终启用：通过";
   })()`).trim());
   run(["click", ".ld-drawer-close"]);
   evaluate(`(() => {
@@ -500,10 +506,17 @@ try {
     boostTarget.append(document.createElement('span'));
     await new Promise(resolve => setTimeout(resolve, 0));
     if (boostPost.can_boost || boostPost.boosts.length !== 1) throw Error('原站 Boost 状态未同步到内存帖子');
+    const childPost={id:457,post_number:3,cooked:'<p>子回复</p>',can_boost:true,boosts:[]};
+    const childCard=buildPostCard(childPost,null,{ancestors:[2]});
+    const thread=document.createElement('div');thread.className='ld-inline-thread';thread.append(childCard);boostCard.append(thread);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const childBoost=childCard.querySelector(':scope > .ld-post-boosts');
+    if (!childBoost.querySelector('.boost') || !childBoost.querySelector('.discourse-boosts') || boostRecord.id!==457) throw Error('子回复 Boost 未挂载或使用父楼数据');
+    if (!(boostTarget.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING)) throw Error('父楼 Boost 位于子树之后');
     const beforeClose = destroyed;
     state.root.setAttribute('aria-hidden', 'true');
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (destroyed !== beforeClose + 2 || boostTarget.children.length || boostCard.querySelector('.ld-native-body')) throw Error('关闭未释放 Boost 和正文');
+    if (destroyed !== beforeClose + 4 || boostTarget.children.length || childBoost.children.length || boostCard.querySelector('.ld-native-body')) throw Error('关闭未释放 Boost 和正文');
     delete window.require;
     return '原站用户卡片、正文/Boost 桥：触发、挂载、状态同步、回退和销毁：通过';
   })()`).trim());
@@ -622,8 +635,9 @@ try {
   })()`).trim());
   console.log(evaluate(`(async () => {
     const s = window.previewTest.state;
-    s.settings.postMode = 'all'; s.settings.replyOrder = 'default'; s.settings.authorFilter = 'all';
-    s.settings.trackPreviewVisit = 'off';
+    s.drawerBody.replaceChildren(s.content);
+    s.root.setAttribute('aria-hidden','false');document.body.classList.add('ld-drawer-page-open');
+    s.settings.replyOrder = 'default'; s.authorFilter = 'all';
     s.currentUrl = 'https://linux.do/t/test/100/25'; s.currentTopicIdHint = 100;
     s.currentViewTracked = true;
     let total = 41;
@@ -705,7 +719,6 @@ try {
           post_stream:{posts, stream:posts.map(post => post.id)}}), {headers:{'content-type':'application/json'}});
       };
       try {
-        s.settings.trackPreviewVisit = 'off';
         s.drawerBody.replaceChildren(s.content);
         s.topicCache.clear();
         list.querySelector('a').click();
@@ -774,11 +787,28 @@ try {
     let opened;
     window.open = (...args) => { opened = args; };
     try {
-      s.settings.previewMode = 'smart'; s.settings.postMode = 'all'; s.settings.authorFilter = 'all';
+      s.settings.previewMode = 'smart'; s.authorFilter = 'all';
       document.querySelector('#main-outlet a[href="/t/test/1"]').click();
       await window.previewTest.loadTopic(s.currentUrl, '搜索回归', 1);
       await waitFor(() => s.currentTopic?.id === 1 && !s.abortController);
-      s.topicSearchButton.click();
+      const findKey=(target,options={})=>{
+        const event=new KeyboardEvent('keydown',{key:'f',ctrlKey:true,bubbles:true,cancelable:true,...options});
+        target.dispatchEvent(event);return event;
+      };
+      const firstFind=findKey(document);
+      if (!firstFind.defaultPrevented || s.topicSearchPanel.hidden || document.activeElement!==s.topicSearchInput) throw Error('Ctrl+F 未接管并聚焦帖内搜索');
+      s.topicSearchInput.value='待替换关键词';
+      const repeatFind=findKey(s.topicSearchInput,{ctrlKey:false,metaKey:true});
+      if (!repeatFind.defaultPrevented || s.topicSearchPanel.hidden || s.topicSearchInput.value!=='待替换关键词' || s.topicSearchInput.selectionStart!==0 || s.topicSearchInput.selectionEnd!==s.topicSearchInput.value.length) throw Error('Cmd+F 或重复查找未保留并选中关键词');
+      for(const options of [{altKey:true},{shiftKey:true},{ctrlKey:false},{isComposing:true}]) {
+        if(findKey(document,options).defaultPrevented) throw Error('非查找组合键被拦截');
+      }
+      s.settingsToggle.click();
+      if(findKey(document).defaultPrevented) throw Error('设置层中抢占查找');s.settingsCloseButton.click();
+      s.replyFabButton.click();
+      if(findKey(s.replyTextarea).defaultPrevented) throw Error('回复输入中抢占查找');s.replyCancelButton.click();
+      const overlay=document.createElement('div');overlay.className='d-modal';overlay.textContent='原站浮层';document.body.append(overlay);
+      if(findKey(document).defaultPrevented) throw Error('原站浮层中抢占查找');overlay.remove();
       await submit('匹配 & 测试');
       const request = requests.at(-1);
       if (request.url.searchParams.get('q') !== '匹配 & 测试 topic:1' || request.url.searchParams.get('search_context[type]') !== 'topic' || request.url.searchParams.get('search_context[id]') !== '1' || request.options.credentials !== 'include') throw Error('搜索关键词、主题范围或凭据错误');
@@ -788,14 +818,14 @@ try {
       if (requests.at(-1).url.searchParams.get('page') !== '2' || requests.at(-1).url.searchParams.get('q') !== '匹配 & 测试 topic:1') throw Error('分页未保持已提交关键词');
       s.topicSearchPanel.querySelector('[data-search-page="prev"]').click(); await waitFor(() => !s.topicSearchAbortController);
       if (s.topicSearchPage !== 1) throw Error('搜索上一页失效');
-      s.settings.postMode = 'first'; s.settings.authorFilter = 'topicOwner';
+      s.authorFilter = 'topicOwner';
       const panelTop = s.topicSearchPanel.getBoundingClientRect().top;
       s.topicSearchResults.lastChild.click();
       await waitFor(() => !s.abortController && s.content.querySelector('[data-post-number="99"]'));
       await new Promise(requestAnimationFrame);
       if (s.topicSearchPanel.hidden || opened || s.topicSearchQuery !== '匹配 & 测试' || s.topicSearchInput.value !== '尚未提交的词' || s.topicSearchResults.children.length !== 2) throw Error('未加载楼层未在侧栏定位并保留搜索');
       if (Math.abs(s.topicSearchPanel.getBoundingClientRect().top - panelTop) > 1 || Math.abs(s.content.querySelector('[data-post-number="99"]').getBoundingClientRect().top - s.drawerBody.getBoundingClientRect().top) > 2) throw Error('搜索栏未固定或目标楼层未滚入视口');
-      s.settings.postMode = 'all'; s.settings.authorFilter = 'all';
+      s.authorFilter = 'all';
       await submit('匹配');
       const highlights = () => [...CSS.highlights.get('ld-topic-search') || []];
       if (!highlights().some(r => s.topicSearchResults.contains(r.startContainer) && r.toString() === '匹配') || !highlights().some(r => s.content.contains(r.startContainer) && r.toString() === '匹配')) throw Error('摘要或正文关键词未高亮');
@@ -841,6 +871,7 @@ try {
       await submit('关闭中'); const closing = requests.at(-1);
       document.querySelector('.ld-drawer-close').click();
       if (!closing.options.signal.aborted || !s.topicSearchPanel.hidden) throw Error('关闭抽屉未取消搜索');
+      if(findKey(document).defaultPrevented) throw Error('抽屉关闭后仍抢占浏览器查找');
       closing.resolve(new Response(JSON.stringify(results))); await settle();
       return '帖内搜索常驻、分页、文本安全、高亮及重绘、侧栏楼层定位、空结果、失败及切帖/关闭竞态：通过';
     } finally {

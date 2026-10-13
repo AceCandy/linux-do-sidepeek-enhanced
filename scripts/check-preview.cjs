@@ -148,7 +148,6 @@ async function main() {
   assert.equal(requests.length, beforeCooldown, "预取失败后暂停自动请求");
 
   state.currentTopic = topic(30);
-  state.settings.trackPreviewVisit = "on";
   api.startReading();
   now += 1000; api.tickReading();
   assert.equal(state.reading.timings.size, 0, "初次采样不立即算已读");
@@ -192,10 +191,6 @@ async function main() {
   assert.equal(requests.at(-1).options.body.get("timings[2]"), "700", "关闭提交剩余时间");
   reply(requests.at(-1), {}); await settle();
 
-  state.settings.trackPreviewVisit = "off";
-  api.startReading();
-  assert.equal(state.reading, null, "关闭阅读设置后不启动");
-  state.settings.trackPreviewVisit = "on";
   api.startReading();
   loggedIn = false;
   now += 1000; api.tickReading();

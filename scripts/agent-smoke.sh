@@ -512,7 +512,7 @@ EOF
 restore_settings_subset() {
   local settings_json=$1
   local key value
-  for key in previewMode postMode replyOrder; do
+  for key in previewMode replyOrder; do
     value=$(echo "$settings_json" | jq -r --arg key "$key" '.[$key] // empty')
     if [ -z "$value" ]; then
       continue
@@ -527,13 +527,6 @@ configure_latest_replies_refresh_mode() {
   local result
 
   result=$(set_setting_value previewMode smart)
-  if [ "$(echo "$result" | jq -r '.ok')" != "true" ]; then
-    echo "$result"
-    return 1
-  fi
-  ab wait 1200 >/dev/null
-
-  result=$(set_setting_value postMode all)
   if [ "$(echo "$result" | jq -r '.ok')" != "true" ]; then
     echo "$result"
     return 1
@@ -576,7 +569,7 @@ reply_entry_state() {
 (() => {
   const root = document.getElementById("ld-drawer-root");
   const headerButton = root?.querySelector(".ld-drawer-reply-toggle");
-  const fabButton = root?.querySelector(".ld-drawer-reply-fab");
+  const fabButton = root?.querySelector(".ld-drawer-reply-fab.ld-drawer-reply-trigger");
   const panel = root?.querySelector("#ld-drawer-reply-panel");
   const fabRect = fabButton?.getBoundingClientRect?.() || null;
   const fabStyle = fabButton ? getComputedStyle(fabButton) : null;
@@ -676,7 +669,7 @@ click_reply_trigger() {
       selector_json='"#ld-drawer-root .ld-drawer-reply-toggle"'
       ;;
     fab)
-      selector_json='"#ld-drawer-root .ld-drawer-reply-fab"'
+      selector_json='"#ld-drawer-root .ld-drawer-reply-fab.ld-drawer-reply-trigger"'
       ;;
     *)
       echo "{\"ok\":false,\"reason\":\"unknown-target\",\"target\":\"$target\"}"
@@ -1236,91 +1229,30 @@ run_013() {
 
 run_014() {
   local case_id="AGENT-CHROME-014"
-  local original_settings original_floating original_preview preview_result off_result off_state on_result on_state settings_open_state click_result panel_state
-  local passed=0
-  local detail=""
-
-  open_topic_by_index 0 >/dev/null || {
-    record_fail "$case_id" "无法打开抽屉"
-    return 0
-  }
-
-  original_settings=$(settings_values)
-  original_floating=$(echo "$original_settings" | jq -r '.floatingReplyButton // empty')
-  original_preview=$(echo "$original_settings" | jq -r '.previewMode // empty')
-  if [ -z "$original_floating" ] || [ -z "$original_preview" ]; then
-    record_fail "$case_id" "无法读取当前设置"
-    return 0
-  fi
-
-  preview_result=$(set_setting_value previewMode smart)
-  if [ "$(echo "$preview_result" | jq -r '.ok')" != "true" ]; then
-    record_fail "$case_id" "无法切到智能预览: $preview_result"
-    return 0
-  fi
+  local original_preview on_state settings_state click_result panel_state
+  open_topic_by_index 0 >/dev/null || { record_fail "$case_id" "无法打开抽屉"; return 0; }
+  original_preview=$(settings_values | jq -r '.previewMode // "auto"')
+  set_setting_value previewMode smart >/dev/null
   ab wait 1200 >/dev/null
-
-  off_result=$(set_setting_value floatingReplyButton off)
-  if [ "$(echo "$off_result" | jq -r '.ok')" != "true" ]; then
-    set_setting_value previewMode "$original_preview" >/dev/null || true
-    record_fail "$case_id" "无法关闭悬浮回复入口: $off_result"
-    return 0
-  fi
-  ab wait 1200 >/dev/null
-  off_state=$(reply_entry_state)
-
-  on_result=$(set_setting_value floatingReplyButton on)
-  if [ "$(echo "$on_result" | jq -r '.ok')" != "true" ]; then
-    set_setting_value floatingReplyButton "$original_floating" >/dev/null || true
-    record_fail "$case_id" "无法开启悬浮回复入口: $on_result"
-    return 0
-  fi
-  ab wait 1200 >/dev/null
-  on_state=$(reply_entry_state)
-
-  ensure_settings_open
-  settings_open_state=$(reply_entry_state)
   ensure_settings_closed
-  ab wait 400 >/dev/null
-
+  on_state=$(reply_entry_state)
+  ensure_settings_open
+  settings_state=$(reply_entry_state)
+  ensure_settings_closed
   click_result=$(click_reply_trigger fab)
   ab wait 800 >/dev/null
   panel_state=$(reply_entry_state)
-
   close_reply_panel_if_open >/dev/null || true
-  ab wait 400 >/dev/null
-  set_setting_value floatingReplyButton "$original_floating" >/dev/null || true
   set_setting_value previewMode "$original_preview" >/dev/null || true
-  ab wait 800 >/dev/null
   ensure_settings_closed
-
-  if [ "$(echo "$off_state" | jq -r '.headerExists')" = "true" ] \
-    && [ "$(echo "$off_state" | jq -r '.headerText // empty')" = "回复主题" ] \
-    && [ "$(echo "$off_state" | jq -r '.headerHidden')" = "false" ] \
-    && [ "$(echo "$off_state" | jq -r '.fabExists')" = "true" ] \
-    && [ "$(echo "$off_state" | jq -r '.fabHidden')" = "true" ] \
-    && [ "$(echo "$off_state" | jq -r '.fabDisplay // empty')" = "none" ] \
-    && [ "$(echo "$off_state" | jq -r '.fabRendered')" = "false" ] \
-    && [ "$(echo "$on_state" | jq -r '.fabHidden')" = "false" ] \
-    && [ "$(echo "$on_state" | jq -r '.fabDisplay // empty')" != "none" ] \
-    && [ "$(echo "$on_state" | jq -r '.fabRendered')" = "true" ] \
-    && [ "$(echo "$settings_open_state" | jq -r '.fabHidden')" = "true" ] \
-    && [ "$(echo "$settings_open_state" | jq -r '.fabDisplay // empty')" = "none" ] \
-    && [ "$(echo "$settings_open_state" | jq -r '.fabRendered')" = "false" ] \
+  if [ "$(echo "$on_state" | jq -r '.fabRendered')" = "true" ] \
+    && [ "$(echo "$settings_state" | jq -r '.fabHidden')" = "true" ] \
     && [ "$(echo "$click_result" | jq -r '.ok')" = "true" ] \
-    && [ "$(echo "$click_result" | jq -r '.target // empty')" = "fab" ] \
     && [ "$(echo "$panel_state" | jq -r '.panelHidden')" = "false" ] \
-    && [ "$(echo "$panel_state" | jq -r '.panelTitle // empty')" = "回复主题" ]; then
-    passed=1
-    detail="off=$(echo "$off_state" | jq -c '{headerHidden, fabHidden, fabDisplay, fabRendered}') on=$(echo "$on_state" | jq -c '{fabHidden, fabDisplay, fabRendered}') settings=$(echo "$settings_open_state" | jq -c '{fabHidden, fabDisplay, fabRendered}') panel=$(echo "$panel_state" | jq -c '{panelHidden, panelTitle}')"
+    && [ "$(echo "$panel_state" | jq -r '.panelTitle')" = "回复主题" ]; then
+    record_pass "$case_id" "底部入口默认可见，设置层遮挡时隐藏，可打开主题回复"
   else
-    detail="off=$(echo "$off_state" | jq -c '{headerExists, headerText, headerHidden, fabExists, fabHidden, fabDisplay, fabRendered}') on=$(echo "$on_state" | jq -c '{fabHidden, fabDisplay, fabRendered}') settings=$(echo "$settings_open_state" | jq -c '{fabHidden, fabDisplay, fabRendered, panelHidden}') click=$(echo "$click_result" | jq -c '.') panel=$(echo "$panel_state" | jq -c '{panelHidden, panelTitle, headerExpanded, fabExpanded}')"
-  fi
-
-  if [ "$passed" -eq 1 ]; then
-    record_pass "$case_id" "$detail"
-  else
-    record_fail "$case_id" "$detail"
+    record_fail "$case_id" "visible=$on_state settings=$settings_state click=$click_result panel=$panel_state"
   fi
 }
 

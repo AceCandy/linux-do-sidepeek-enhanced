@@ -24,25 +24,15 @@
   const REPLY_UPLOAD_MARKER = "\u2063";
   const DEFAULT_SETTINGS = {
     previewMode: "auto",
-    postMode: "all",
     postBodyFontSize: 15,
-    authorFilter: "all",
     replyOrder: "default",
     replyDisplay: "inline",
-    floatingReplyButton: "on",
     showTrustStatus: "on",
     enhancedBookmarks: "on",
     listAlignLeft: "off",
-    drawerWidth: "narrow",
     drawerWidthCustom: 720,
     drawerMode: "overlay",
-    trackPreviewVisit: "on",
     replyPanelPosition: null
-  };
-  const DRAWER_WIDTHS = {
-    narrow: "clamp(320px, 34vw, 680px)",
-    medium: "clamp(360px, 42vw, 920px)",
-    wide: "clamp(420px, 52vw, 1200px)"
   };
   const LIST_ROW_SELECTOR = [
     "tr.topic-list-item",
@@ -132,6 +122,8 @@
     postBodyFontSizeHint: null,
     settingsCloseButton: null,
     settingsToggle: null,
+    authorFilter: "all",
+    authorFilterButton: null,
     latestRepliesRefreshButton: null,
     topicSearchButton: null,
     topicSearchPanel: null,
@@ -488,13 +480,6 @@
                   <option value="iframe">整页模式</option>
                 </select>
               </label>
-              <label class="ld-setting-field">
-                <span class="ld-setting-label">内容范围</span>
-                <select class="ld-setting-control" data-setting="postMode">
-                  <option value="all">完整主题</option>
-                  <option value="first">仅首帖</option>
-                </select>
-              </label>
               <label class="ld-setting-field" data-setting-group="postBodyFontSize">
                 <div class="ld-setting-row">
                   <span class="ld-setting-label">正文字号</span>
@@ -511,14 +496,6 @@
                 <span class="ld-setting-hint" data-setting-hint="postBodyFontSize">只调整帖子正文和代码字号，不影响标题和按钮</span>
               </label>
               <label class="ld-setting-field">
-                <span class="ld-setting-label">作者过滤</span>
-                <select class="ld-setting-control" data-setting="authorFilter">
-                  <option value="all">全部作者</option>
-                  <option value="topicOwner">只看楼主</option>
-                </select>
-                <span class="ld-setting-hint">只在智能预览里过滤显示，不影响原帖内容</span>
-              </label>
-              <label class="ld-setting-field">
                 <span class="ld-setting-label">回复排序</span>
                 <select class="ld-setting-control" data-setting="replyOrder">
                   <option value="default">默认顺序</option>
@@ -533,22 +510,6 @@
                   <option value="legacy">普通楼层（按楼号阅读）</option>
                 </select>
                 <span class="ld-setting-hint">树形仅展示顶层帖子，子回复自动展开；只看楼主时按楼层显示</span>
-              </label>
-              <label class="ld-setting-field">
-                <span class="ld-setting-label">底部回复入口</span>
-                <select class="ld-setting-control" data-setting="floatingReplyButton">
-                  <option value="off">关闭</option>
-                  <option value="on">开启</option>
-                </select>
-                <span class="ld-setting-hint">开启后在底部工具栏显示快捷回复入口</span>
-              </label>
-              <label class="ld-setting-field">
-                <span class="ld-setting-label">阅读状态</span>
-                <select class="ld-setting-control" data-setting="trackPreviewVisit">
-                  <option value="on">同步实际阅读进度</option>
-                  <option value="off">不同步阅读进度</option>
-                </select>
-                <span class="ld-setting-hint">仅上报前台实际阅读的楼层；预取不计已读。阅读末楼可能推进整帖已读位置，整页模式由原网页处理</span>
               </label>
               <label class="ld-setting-field">
                 <span class="ld-setting-label">抽屉模式</span>
@@ -582,16 +543,6 @@
                 </select>
                 <span class="ld-setting-hint">关闭后隐藏收藏悬浮入口，楼层按钮恢复直接收藏/取消；已有分类、标签和备注保留</span>
               </label>
-              <label class="ld-setting-field">
-                <span class="ld-setting-label">抽屉宽度</span>
-                <select class="ld-setting-control" data-setting="drawerWidth">
-                  <option value="narrow">窄</option>
-                  <option value="medium">中</option>
-                  <option value="wide">宽</option>
-                  <option value="custom">自定义</option>
-                </select>
-                <span class="ld-setting-hint">也可以直接拖动抽屉左边边缘</span>
-              </label>
               <button class="ld-settings-reset" type="button">恢复默认</button>
             </div>
           </div>
@@ -612,10 +563,13 @@
             <div class="ld-drawer-content"></div>
           </div>
           <div class="ld-reading-tools" role="toolbar" aria-label="阅读工具">
+          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-owner-filter" type="button" aria-label="只看楼主" title="只看楼主" aria-pressed="false" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>
+          </button>
           <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-refresh" type="button" aria-label="刷新当前帖子" title="刷新当前帖子" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
           </button>
-          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-search" type="button" aria-label="帖内搜索" title="帖内搜索" aria-expanded="false" aria-controls="ld-topic-search" hidden>
+          <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-search" type="button" aria-label="帖内搜索" title="帖内搜索（Ctrl+F / ⌘F）" aria-keyshortcuts="Control+f Meta+f" aria-expanded="false" aria-controls="ld-topic-search" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
           </button>
           <button class="ld-drawer-reply-fab ld-drawer-top-fab ld-drawer-back-top" type="button" aria-label="回到顶部" title="回到顶部">
@@ -695,6 +649,7 @@
     state.postBodyFontSizeHint = root.querySelector('[data-setting-hint="postBodyFontSize"]');
     state.settingsCloseButton = root.querySelector(".ld-settings-close");
     state.settingsToggle = root.querySelector(".ld-drawer-settings-toggle");
+    state.authorFilterButton = root.querySelector(".ld-drawer-owner-filter");
     state.latestRepliesRefreshButton = root.querySelector(".ld-drawer-refresh");
     state.topicSearchButton = root.querySelector(".ld-drawer-search");
     state.topicSearchPanel = root.querySelector(".ld-topic-search-panel");
@@ -719,6 +674,7 @@
     });
     state.bottomFabButton.addEventListener("click", handleJumpToLatestPost);
     state.settingsToggle.addEventListener("click", toggleSettingsPanel);
+    state.authorFilterButton.addEventListener("click", handleAuthorFilterToggle);
     state.latestRepliesRefreshButton.addEventListener("click", handleLatestRepliesRefresh);
     state.topicSearchButton.addEventListener("click", () => setTopicSearchOpen(state.topicSearchPanel.hidden));
     root.querySelector(".ld-topic-search-close").addEventListener("click", () => setTopicSearchOpen(false));
@@ -913,6 +869,16 @@
       event.preventDefault();
       event.stopPropagation();
       setTopicSearchOpen(false);
+      return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.isComposing
+        && event.key.toLowerCase() === "f" && document.body.classList.contains(PAGE_OPEN_CLASS)
+        && state.currentTopic?.id && state.settingsPanel?.hidden && state.replyPanel?.hidden && state.imagePreview?.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      setTopicSearchOpen(true);
+      state.topicSearchInput.select();
       return;
     }
 
@@ -1111,7 +1077,7 @@
   }
 
   function canTrackReading() {
-    return state.settings.trackPreviewVisit === "on" && !state.previewPageHidden &&
+    return !state.previewPageHidden &&
       !document.hidden && document.hasFocus() && Boolean(document.querySelector("#current-user")) && Boolean(getCsrfToken()) &&
       document.body.classList.contains(PAGE_OPEN_CLASS) && state.currentTopic &&
       !state.currentTopic.__sidePeekIframeShell && !state.root?.classList.contains(IFRAME_MODE_CLASS) &&
@@ -1120,7 +1086,7 @@
   }
 
   function startReading() {
-    if (!state.currentTopic || state.currentTopic.__sidePeekIframeShell || state.settings.trackPreviewVisit !== "on") return;
+    if (!state.currentTopic || state.currentTopic.__sidePeekIframeShell) return;
     const topicId = Number(state.currentTopic.id);
     if (!Number.isSafeInteger(topicId) || topicId < 1) return;
     if (state.reading?.topicId !== topicId) {
@@ -1247,7 +1213,7 @@
 
   function getTopicViewKey(topicUrl) {
     return [getTopicTargetSpec(topicUrl)?.targetSegments.join("/") || "",
-      state.settings.postMode, state.settings.replyOrder, state.settings.authorFilter].join(":");
+      state.settings.replyOrder, state.authorFilter].join(":");
   }
 
   function pruneTopicCache() {
@@ -1327,7 +1293,7 @@
         (shouldLoadLatestRepliesTopic(entry.topic, targetSpec) && !entry.latestRepliesTopic)) {
       return false;
     }
-    if (isThreadMode() && (state.settings.postMode === "all" || resolvedTarget)
+    if (isThreadMode()
         && (!entry.topic.__sidePeekThreadPrepared
           || entry.topic.__sidePeekThreadTargetPath?.at(-1) !== (resolvedTarget || undefined)
           || (entry.latestRepliesTopic && !entry.latestRepliesTopic.__sidePeekTopLevel))) {
@@ -1376,6 +1342,7 @@
     state.currentEntryKey = currentEntry?.entryKey || buildEntryKey(topicUrl, 1);
     state.currentTopicIdHint = topicIdHint;
     if (!isSameTrackedTopic) {
+      state.authorFilter = "all";
       state.currentViewTracked = false;
       state.currentTrackRequest = null;
       state.currentTrackRequestKey = "";
@@ -1488,6 +1455,7 @@
     setIframeModeEnabled(false);
     state.root?.setAttribute("aria-hidden", "true");
     state.currentUrl = "";
+    state.authorFilter = "all";
     state.currentEntryElement = null;
     state.currentEntryKey = "";
     state.currentTopicIdHint = null;
@@ -1787,7 +1755,7 @@
       }
       if (controller.signal.aborted || state.currentUrl !== topicUrl) return;
 
-      if (!topic && (state.settings.trackPreviewVisit === "off" || state.currentViewTracked)) {
+      if (!topic && state.currentViewTracked) {
         topic = await fetchTrackedTopicJson(topicUrl, controller.signal, topicIdHint, {
           canonical: true,
           trackVisit: false
@@ -1827,7 +1795,7 @@
         return;
       }
 
-      if (isThreadMode() && (state.settings.postMode === "all" || resolvedTargetPostNumber)) {
+      if (isThreadMode()) {
         topic = await prepareThreadTopic(topic, topicUrl, resolvedTargetPostNumber, controller.signal);
         if (latestRepliesTopic && !latestRepliesTopic.__sidePeekTopLevel) {
           latestRepliesTopic = await fetchLatestRepliesTopic(topicUrl, controller.signal, topicIdHint);
@@ -1905,9 +1873,8 @@
   function canAppendLoadedPostsIncrementally() {
     return Boolean(
       state.content
-      && state.settings.postMode === "all"
       && state.settings.replyOrder === "default"
-      && state.settings.authorFilter === "all"
+      && state.authorFilter === "all"
       && !state.currentTargetSpec?.hasTarget
       && state.content.querySelector(".ld-topic-post-list")
     );
@@ -1967,7 +1934,6 @@
     wrapper.className = "ld-topic-view";
     wrapper.dataset.replyDisplay = isThreadMode() ? "inline" : "legacy";
     const visiblePosts = viewModel.posts;
-    const basePosts = topic?.post_stream?.posts || [];
     const topicOwner = getTopicOwnerIdentity(topic);
 
     if (!state.hasShownPreviewNotice) {
@@ -1986,13 +1952,6 @@
 
     const footer = document.createElement("div");
     footer.className = "ld-topic-footer";
-
-    if (viewModel.mode === "first" && basePosts.length > 1) {
-      const note = document.createElement("div");
-      note.className = "ld-topic-note";
-      note.textContent = `当前为"仅首帖"模式。想看回复，可在右上角选项里切回"完整主题"。`;
-      footer.appendChild(note);
-    }
 
     const replyModeNote = buildReplyModeNote(viewModel);
     if (replyModeNote) {
@@ -2031,15 +1990,6 @@
     const sourcePosts = topic?.post_stream?.posts || [];
     const posts = isThreadMode() ? sourcePosts.filter(isThreadRootPost) : sourcePosts;
     const moreAvailable = hasMoreTopicPosts(topic);
-
-    if (state.settings.postMode === "first" && !targetSpec?.targetPostNumber) {
-      return applyAuthorFilterToViewModel({
-        posts: posts.slice(0, 1),
-        mode: "first",
-        canAutoLoadMore: false,
-        hasHiddenPosts: posts.length > 1 || moreAvailable
-      }, topic);
-    }
 
     if (targetSpec?.targetPostNumber) {
       return applyAuthorFilterToViewModel({
@@ -2096,7 +2046,7 @@
   }
 
   function applyAuthorFilterToViewModel(viewModel, topic) {
-    if (!viewModel || state.settings.authorFilter !== "topicOwner") {
+    if (!viewModel || state.authorFilter !== "topicOwner") {
       return {
         ...(viewModel || {}),
         authorFilter: "all",
@@ -2365,21 +2315,6 @@
       article.append(header, body);
     }
     article.appendChild(actions);
-    if (postInfos?.inlineThread) {
-      article.append(postInfos.inlineThread);
-      const path = state.currentTopic?.__sidePeekThreadTargetPath || [];
-      const index = path.indexOf(post.post_number);
-      if (index >= 0 && index < path.length - 1) {
-        requestAnimationFrame(() => {
-          if (article.isConnected) postInfos.openThread();
-        });
-      }
-    }
-    if (isThreadMode() && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
-      requestAnimationFrame(() => {
-        if (article.isConnected) article.scrollIntoView({ block: "center", behavior: "auto" });
-      });
-    }
     if (!post.deleted && (post.can_boost || post.boosts?.length)) {
       const boosts = document.createElement("div");
       boosts.className = "ld-post-boosts";
@@ -2398,6 +2333,21 @@
         boosts.setAttribute("data-ld-native-post", JSON.stringify(post));
         boosts.dispatchEvent(new Event("ld-render-native-post", { bubbles: true }));
         boosts.removeAttribute("data-ld-native-post");
+      });
+    }
+    if (postInfos?.inlineThread) {
+      article.append(postInfos.inlineThread);
+      const path = state.currentTopic?.__sidePeekThreadTargetPath || [];
+      const index = path.indexOf(post.post_number);
+      if (index >= 0 && index < path.length - 1) {
+        requestAnimationFrame(() => {
+          if (article.isConnected) postInfos.openThread();
+        });
+      }
+    }
+    if (isThreadMode() && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
+      requestAnimationFrame(() => {
+        if (article.isConnected) article.scrollIntoView({ block: "center", behavior: "auto" });
       });
     }
     return article;
@@ -3709,6 +3659,14 @@
     }
   }
 
+  function handleAuthorFilterToggle() {
+    cacheCurrentTopic();
+    cancelDirectRepliesRequest();
+    state.authorFilter = state.authorFilter === "all" ? "topicOwner" : "all";
+    refreshCurrentView();
+    syncReplyUI();
+  }
+
   async function handleLatestRepliesRefresh() {
     if (!state.currentUrl || state.isRefreshingLatestReplies || state.abortController) {
       return;
@@ -3731,7 +3689,7 @@
   }
 
   function handleJumpToLatestPost() {
-    if (!state.currentTopic || state.settings.postMode === "first") {
+    if (!state.currentTopic) {
       return;
     }
 
@@ -3800,7 +3758,7 @@
       const needsLatestRepliesReload = shouldLoadLatestRepliesTopic(state.currentTopic, targetSpec)
         && !state.currentLatestRepliesTopic;
 
-      const needsThreadReload = isThreadMode() && (state.settings.postMode === "all" || state.currentResolvedTargetPostNumber)
+      const needsThreadReload = isThreadMode()
         && (!state.currentTopic.__sidePeekThreadPrepared
           || state.currentTopic.__sidePeekThreadTargetPath?.at(-1) !== (state.currentResolvedTargetPostNumber || undefined));
       const needsOrdinaryReload = !isThreadMode() && state.currentLatestRepliesTopic?.__sidePeekTopLevel;
@@ -3825,7 +3783,7 @@
       return false;
     }
 
-    if (state.settings.postMode === "first" || state.settings.replyOrder !== "latestFirst") {
+    if (state.settings.replyOrder !== "latestFirst") {
       return false;
     }
 
@@ -3855,6 +3813,16 @@
 
     const shouldShow = Boolean(state.currentUrl) && state.settingsPanel?.hidden && state.replyPanel?.hidden;
     if (state.topicSearchButton) state.topicSearchButton.hidden = !shouldShow;
+    if (state.authorFilterButton) {
+      state.authorFilterButton.hidden = !shouldShow || !state.currentTopic?.id
+        || state.root.classList.contains(IFRAME_MODE_CLASS);
+      state.authorFilterButton.disabled = Boolean(state.abortController);
+      state.authorFilterButton.setAttribute("aria-pressed", String(state.authorFilter === "topicOwner"));
+      const label = state.authorFilter === "topicOwner" ? "显示全部作者" : "只看楼主";
+      state.authorFilterButton.title = label;
+      state.authorFilterButton.setAttribute("aria-label", label);
+    }
+
     const isRefreshing = state.isRefreshingLatestReplies;
     state.latestRepliesRefreshButton.hidden = !shouldShow;
     state.latestRepliesRefreshButton.disabled = !shouldShow || isRefreshing || Boolean(state.abortController);
@@ -3865,7 +3833,7 @@
   }
 
   function shouldLoadLatestRepliesTopic(topic, targetSpec) {
-    if (state.settings.postMode === "first" || state.settings.replyOrder !== "latestFirst") {
+    if (state.settings.replyOrder !== "latestFirst") {
       return false;
     }
 
@@ -4022,7 +3990,7 @@
   }
 
   function isThreadMode() {
-    return state.settings.replyDisplay === "inline" && state.settings.authorFilter === "all";
+    return state.settings.replyDisplay === "inline" && state.authorFilter === "all";
   }
 
   function isThreadRootPost(post) {
@@ -4096,7 +4064,7 @@
   }
 
   function trackCurrentTopicVisit() {
-    if (state.settings.trackPreviewVisit !== "on" || state.currentViewTracked ||
+    if (state.currentViewTracked ||
         !state.currentTopic || state.currentTopic.__sidePeekIframeShell) return;
     ensureTrackedTopicVisit(state.currentUrl, state.currentTopicIdHint, state.abortController?.signal).catch(() => {});
   }
@@ -6433,7 +6401,7 @@
   }
 
   function shouldFetchTargetedTopic(topic, targetSpec) {
-    if (!targetSpec?.hasTarget || (state.settings.postMode === "first" && !targetSpec.targetPostNumber)) {
+    if (!targetSpec?.hasTarget) {
       return false;
     }
 
@@ -7153,6 +7121,21 @@
         state.directReplyCache.set(number, cached);
         for (const post of posts) state.replyParentCache.set(post.post_number, post);
       }
+      if (!isLegacy) {
+        // 回复摘要可能缺少 Boost 权限，补取服务器提供的完整楼层，不推断权限。
+        const missing = cached.posts.filter((post) => !post.deleted && typeof post.can_boost !== "boolean");
+        if (missing.length) {
+          const fullPosts = await fetchTopicPostsBatch(state.currentUrl, missing.map((post) => post.id), signal, topic.id);
+          if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
+          for (const post of missing) {
+            const full = fullPosts.find((item) => item?.id === post.id && item.post_number === post.post_number
+              && typeof item.cooked === "string" && (!item.topic_id || item.topic_id === topic.id));
+            if (!full) throw new Error("完整回复数据不可用");
+            Object.assign(post, full, { can_boost: full.can_boost === true });
+          }
+        }
+        if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
+      }
       const nodes = cached.posts.filter((p) => !ancestors.includes(p.post_number))
         .map((p) => isLegacy ? buildPostReplyPreviewRow(p) : buildPostCard(p, getTopicOwnerIdentity(topic), { ancestors }));
       if (cached) state.directReplyCache.set(number, cached);
@@ -7245,45 +7228,34 @@
   function loadSettings() {
     try {
       const saved = readPersistedSettings();
-      const settings = {
-        ...DEFAULT_SETTINGS,
-        ...(saved && typeof saved === "object" ? saved : {})
-      };
+      const settings = { ...DEFAULT_SETTINGS };
+      for (const key of Object.keys(DEFAULT_SETTINGS)) {
+        if (saved && Object.hasOwn(saved, key)) settings[key] = saved[key];
+      }
 
       if (!["auto", "smart", "iframe"].includes(settings.previewMode)) {
         settings.previewMode = DEFAULT_SETTINGS.previewMode;
-      }
-
-      if (settings.trackPreviewVisit !== "on" && settings.trackPreviewVisit !== "off") {
-        settings.trackPreviewVisit = DEFAULT_SETTINGS.trackPreviewVisit;
-      }
-
-      if (!(settings.drawerWidth in DRAWER_WIDTHS) && settings.drawerWidth !== "custom") {
-        settings.drawerWidth = DEFAULT_SETTINGS.drawerWidth;
       }
 
       if (settings.drawerMode !== "push" && settings.drawerMode !== "overlay") {
         settings.drawerMode = DEFAULT_SETTINGS.drawerMode;
       }
 
-      if (settings.authorFilter !== "all" && settings.authorFilter !== "topicOwner") {
-        settings.authorFilter = DEFAULT_SETTINGS.authorFilter;
-      }
-
       if (settings.replyDisplay !== "inline" && settings.replyDisplay !== "legacy") {
         settings.replyDisplay = DEFAULT_SETTINGS.replyDisplay;
       }
 
-      if (settings.floatingReplyButton !== "off" && settings.floatingReplyButton !== "on") {
-        settings.floatingReplyButton = DEFAULT_SETTINGS.floatingReplyButton;
-      }
       for (const key of ["showTrustStatus", "listAlignLeft", "enhancedBookmarks"]) {
         if (settings[key] !== "on" && settings[key] !== "off") settings[key] = DEFAULT_SETTINGS[key];
       }
 
       settings.replyPanelPosition = normalizeReplyPanelPosition(settings.replyPanelPosition);
       settings.postBodyFontSize = clampPostBodyFontSize(settings.postBodyFontSize);
-      settings.drawerWidthCustom = clampDrawerWidth(settings.drawerWidthCustom);
+      // 旧宽度预设只在读取时转换为像素，已拖拽的宽度直接保留。
+      const legacyWidth = { narrow: [320, 0.34, 680], medium: [360, 0.42, 920], wide: [420, 0.52, 1200] }[saved?.drawerWidth];
+      settings.drawerWidthCustom = clampDrawerWidth(legacyWidth
+        ? Math.min(legacyWidth[2], Math.max(legacyWidth[0], window.innerWidth * legacyWidth[1]))
+        : settings.drawerWidthCustom);
       return settings;
     } catch {
       return { ...DEFAULT_SETTINGS };
@@ -7330,7 +7302,7 @@
     }
 
     if (state.bottomFabButton) {
-      state.bottomFabButton.hidden = !hasTopic || state.settings.postMode === "first" || isSettingsOpen
+      state.bottomFabButton.hidden = !hasTopic || isSettingsOpen
         || state.root.classList.contains(IFRAME_MODE_CLASS) || !state.replyPanel?.hidden;
     }
 
@@ -7342,8 +7314,7 @@
 
     if (state.replyFabButton) {
       state.replyFabButton.hidden = !hasCurrentUrl
-        || isSettingsOpen
-        || state.settings.floatingReplyButton !== "on";
+        || isSettingsOpen;
       state.replyFabButton.disabled = !hasTopic || state.isReplySubmitting;
       state.replyFabButton.classList.toggle("is-disabled", !hasTopic || state.isReplySubmitting);
     }
@@ -7480,7 +7451,7 @@
     }
 
     cacheCurrentTopic();
-    if (key === "trackPreviewVisit" || key === "previewMode") stopReading();
+    if (key === "previewMode") stopReading();
     if (key === "replyDisplay") cancelDirectRepliesRequest();
     state.settings[key] = key === "postBodyFontSize"
       ? clampPostBodyFontSize(target.value)
@@ -7498,21 +7469,8 @@
       return;
     }
 
-    if (key === "drawerWidth") {
-      applyDrawerWidth();
-      syncSettingsUI();
-      setSettingsPanelOpen(false);
-      return;
-    }
-
     if (key === "drawerMode") {
       applyDrawerMode();
-      setSettingsPanelOpen(false);
-      return;
-    }
-
-    if (key === "floatingReplyButton") {
-      syncReplyUI();
       setSettingsPanelOpen(false);
       return;
     }
@@ -7532,6 +7490,7 @@
     cacheCurrentTopic();
     stopReading();
     state.settings = { ...DEFAULT_SETTINGS };
+    state.authorFilter = "all";
     syncSettingsUI();
     saveSettings();
     applyPostBodyFontSize();
@@ -7546,9 +7505,7 @@
   }
 
   function applyDrawerWidth() {
-    const width = state.settings.drawerWidth === "custom"
-      ? `${clampDrawerWidth(state.settings.drawerWidthCustom)}px`
-      : (DRAWER_WIDTHS[state.settings.drawerWidth] || DRAWER_WIDTHS.medium);
+    const width = `${clampDrawerWidth(state.settings.drawerWidthCustom)}px`;
 
     document.documentElement.style.setProperty(
       "--ld-drawer-width",
@@ -7603,7 +7560,6 @@
     event.preventDefault();
     state.isResizing = true;
     document.body.classList.add("ld-drawer-resizing");
-    state.settings.drawerWidth = "custom";
     syncSettingsUI();
     updateCustomDrawerWidth(event.clientX);
     state.resizeHandle?.setPointerCapture?.(event.pointerId);
@@ -7633,7 +7589,6 @@
   }
 
   function updateCustomDrawerWidth(clientX) {
-    state.settings.drawerWidth = "custom";
     state.settings.drawerWidthCustom = clampDrawerWidth(window.innerWidth - clientX);
     applyDrawerWidth();
   }
@@ -7754,13 +7709,7 @@
 
   function handleWindowResize() {
     closeBookmarkPicker();
-    if (state.settings.drawerWidth === "custom") {
-      state.settings.drawerWidthCustom = clampDrawerWidth(state.settings.drawerWidthCustom);
-      applyDrawerWidth();
-      saveSettings();
-    } else {
-      updateSettingsPopoverPosition();
-    }
+    applyDrawerWidth();
 
     scheduleTopicTrackerPositionSync();
   }
