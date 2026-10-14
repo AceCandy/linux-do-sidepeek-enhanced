@@ -205,8 +205,17 @@ async function main() {
   await api.flushReading(state.reading);
   assert.equal(requests.length, beforeSessionChange, "不把旧会话阅读发给新会话");
   assert.equal(state.reading.timings.size, 0);
-  api.stopReading();
-  api.startReading();
+  const oldReading = state.reading;
+  now += 1000; api.tickReading();
+  assert.notEqual(state.reading, oldReading, "同一主题切换会话后必须恢复新会话采样");
+  assert.equal(state.reading.token, token);
+  assert.equal(state.reading.totals.size, 0, "新会话不继承旧会话的阅读上限");
+  now += 1000; api.tickReading();
+  now += 1000; api.tickReading();
+  const resumed = api.flushReading(state.reading);
+  assert.equal(requests.at(-1).options.headers["X-CSRF-Token"], token);
+  assert.equal(requests.at(-1).options.body.get("timings[1]"), "1000");
+  reply(requests.at(-1), {}); await resumed;
   state.reading.timings.set(1, 900);
   state.reading.topicTime = 900;
   const failed = api.flushReading(state.reading);
@@ -274,4 +283,69 @@ async function main() {
   console.log("CF 标志头/HTML 识别、普通错误不误判、取消竞态、持续暂停及手动探测：通过");
   console.log("预取限速/并发/暂停、点击复用、楼层补取、实际阅读与会话边界：通过");
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+async function checkReplyLifecycle() {
+  const pending = [], appended = [], inserted = [];
+  const deferred = (kind, signal) => new Promise((resolve, reject) => pending.push({ kind, signal, resolve, reject }));
+  const sandbox = {
+    window: {}, location: { href: "https://linux.do/latest", origin: "https://linux.do" }, localStorage: { getItem: () => null },
+    AbortController, URLSearchParams, fetch: (url, options) => deferred("reply", options.signal),
+    pendingUpload: (file, signal) => deferred("upload", signal),
+    append: post => appended.push(post), insert: (marker, text) => { inserted.push(text); return true; }
+  };
+  vm.runInNewContext(source.replace(/^  init\(\);$/m, `
+    getCsrfToken = () => "test-csrf"; createComposerUpload = globalThis.pendingUpload;
+    appendCreatedReplyToCurrentTopic = globalThis.append; replaceReplyTextareaText = globalThis.insert;
+    buildComposerUploadMarkdown = upload => upload.url;
+    syncReplyUI = setReplyPanelOpen = () => {}; buildReplyTextareaPlaceholder = () => "";
+    globalThis.api = { state, handleReplySubmit, resetReplyComposer, uploadReplyPasteFile };
+  `), sandbox);
+  const { state: s, handleReplySubmit, resetReplyComposer, uploadReplyPasteFile } = sandbox.api;
+  s.currentTopic = { id: 1 }; s.replyTextarea = { value: "主题 A 的回复" }; s.replyStatus = {};
+  const firstReply = handleReplySubmit(), firstRequest = pending.at(-1);
+  s.currentTopic = { id: 2 }; resetReplyComposer();
+  assert.equal(firstRequest.signal.aborted, true, "切换编辑会话取消旧回复请求");
+  s.replyTextarea.value = "主题 B 的回复";
+  const secondReply = handleReplySubmit(), secondRequest = pending.at(-1);
+  reply(firstRequest, { topic_id: 1 }); await firstReply;
+  assert.equal(s.isReplySubmitting, true, "旧提交结束不能清除新提交状态");
+  assert.equal(s.replyTextarea.value, "主题 B 的回复");
+  assert.equal(appended.length, 0, "旧回复不能写入当前主题");
+  reply(secondRequest, { topic_id: 2 }); await secondReply;
+  assert.equal(appended.length, 1); assert.equal(appended[0].topic_id, 2);
+  assert.equal(s.isReplySubmitting, false);
+
+  for (const data of ["html", null, "unexpected", []]) {
+    s.replyTextarea.value = "必须保留的草稿";
+    const submitting = handleReplySubmit();
+    if (data === "html") {
+      pending.at(-1).resolve({ ok: true, status: 200, headers: { get: () => "text/html" } });
+    } else {
+      reply(pending.at(-1), data);
+    }
+    await submitting;
+    assert.equal(s.replyTextarea.value, "必须保留的草稿", "异常成功响应不能丢弃草稿");
+    assert.match(s.replyStatus.textContent, /未能确认.*草稿已保留/);
+    assert.equal(appended.length, 1, "异常成功响应不能插入回复");
+    assert.equal(s.isReplySubmitting, false);
+  }
+  const rejectedReply = handleReplySubmit();
+  reply(pending.at(-1), { errors: ["回复内容过短"] }, 422);
+  await rejectedReply;
+  assert.equal(s.replyStatus.textContent, "回复内容过短");
+  assert.equal(s.replyTextarea.value, "必须保留的草稿");
+
+  s.replyUploadPendingCount = 1;
+  const oldUpload = uploadReplyPasteFile({ file: {}, marker: "old" }, s.replyComposerSessionId);
+  const oldRequest = pending.at(-1);
+  resetReplyComposer(); s.replyUploadPendingCount = 1;
+  const newUpload = uploadReplyPasteFile({ file: {}, marker: "new" }, s.replyComposerSessionId);
+  const newRequest = pending.at(-1);
+  oldRequest.resolve({ url: "old-image" }); await oldUpload;
+  assert.equal(oldRequest.signal.aborted, true);
+  assert.equal(s.replyUploadPendingCount, 1, "旧上传结束不能减少新会话待上传数");
+  assert.equal(inserted.length, 0);
+  newRequest.resolve({ url: "new-image" }); await newUpload;
+  assert.equal(s.replyUploadPendingCount, 0); assert.deepEqual(inserted, ["new-image\n"]);
+  console.log("回复提交和图片上传的跨主题会话隔离、异常响应保留草稿：通过");
+}
+main().then(checkReplyLifecycle).catch(error => { console.error(error); process.exitCode = 1; });

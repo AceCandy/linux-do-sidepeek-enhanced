@@ -1149,10 +1149,18 @@
     if (!state.currentTopic || state.currentTopic.__sidePeekIframeShell) return;
     const topicId = Number(state.currentTopic.id);
     if (!Number.isSafeInteger(topicId) || topicId < 1) return;
+    const token = getCsrfToken();
+    if (state.reading && state.reading.token !== token) {
+      state.reading.closed = true;
+      state.reading.timings.clear();
+      state.reading.topicTime = 0;
+      clearTimeout(state.reading.retryTimer);
+      state.reading = null;
+    }
     if (state.reading?.topicId !== topicId) {
       stopReading();
       const now = performance.now();
-      state.reading = { topicId, token: getCsrfToken(), timings: new Map(), totals: new Map(), onscreen: new Set(), topicTime: 0,
+      state.reading = { topicId, token, timings: new Map(), totals: new Map(), onscreen: new Set(), topicTime: 0,
         lastTick: now, lastActivity: now, lastFlush: now, sending: false, closed: false, errorShown: false, nextSendAt: 0, retryTimer: 0 };
     }
     state.reading.onscreen.clear();
@@ -1185,6 +1193,10 @@
   function tickReading() {
     const reading = state.reading;
     if (!reading) return;
+    if (reading.token !== getCsrfToken()) {
+      startReading();
+      return;
+    }
     const now = performance.now();
     const elapsed = now - reading.lastTick;
     reading.lastTick = now;
@@ -2967,7 +2979,7 @@
 
   async function uploadReplyPasteFile(entry, sessionId) {
     const controller = new AbortController();
-    addReplyUploadController(controller);
+    state.replyUploadControllers.push(controller);
 
     try {
       const upload = await createComposerUpload(entry.file, controller.signal, { pasted: true });
@@ -2976,7 +2988,7 @@
       }
 
       const markdown = buildComposerUploadMarkdown(upload);
-      const inserted = replaceReplyUploadPlaceholder(entry.marker, `${markdown}\n`);
+      const inserted = replaceReplyTextareaText(entry.marker, `${markdown}\n`);
       if (!inserted) {
         insertReplyTextareaText(`\n${markdown}\n`);
       }
@@ -2984,7 +2996,7 @@
       return upload;
     } catch (error) {
       if (!controller.signal.aborted && sessionId === state.replyComposerSessionId) {
-        removeReplyUploadPlaceholder(entry.marker);
+        replaceReplyTextareaText(entry.marker, "");
       }
 
       if (controller.signal.aborted) {
@@ -2993,24 +3005,13 @@
 
       throw error;
     } finally {
-      removeReplyUploadController(controller);
-      if (state.replyUploadPendingCount > 0) {
-        state.replyUploadPendingCount -= 1;
-      }
-
-      syncReplyUI();
-      if (sessionId === state.replyComposerSessionId && state.replyUploadPendingCount > 0) {
+      state.replyUploadControllers = state.replyUploadControllers.filter((item) => item !== controller);
+      if (sessionId === state.replyComposerSessionId) {
+        if (state.replyUploadPendingCount > 0) state.replyUploadPendingCount -= 1;
+        syncReplyUI();
         updateReplyUploadStatus();
       }
     }
-  }
-
-  function replaceReplyUploadPlaceholder(marker, replacement) {
-    return replaceReplyTextareaText(marker, replacement);
-  }
-
-  function removeReplyUploadPlaceholder(marker) {
-    replaceReplyTextareaText(marker, "");
   }
 
   function replaceReplyTextareaText(searchText, replacementText) {
@@ -3032,14 +3033,6 @@
     );
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
-  }
-
-  function addReplyUploadController(controller) {
-    state.replyUploadControllers.push(controller);
-  }
-
-  function removeReplyUploadController(controller) {
-    state.replyUploadControllers = state.replyUploadControllers.filter((item) => item !== controller);
   }
 
   function cancelReplyUploads() {
@@ -3085,6 +3078,7 @@
     syncReplyUI();
     state.replyStatus.textContent = "正在发送回复...";
 
+    const sessionId = state.replyComposerSessionId;
     const controller = new AbortController();
     state.replyAbortController = controller;
 
@@ -3095,7 +3089,7 @@
         controller.signal,
         state.replyTargetPostNumber
       );
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || sessionId !== state.replyComposerSessionId) {
         return;
       }
 
@@ -3107,9 +3101,10 @@
       } else {
         await appendCreatedReplyToCurrentTopic(createdPost);
       }
+      if (controller.signal.aborted || sessionId !== state.replyComposerSessionId) return;
       setReplyPanelOpen(false);
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || sessionId !== state.replyComposerSessionId) {
         return;
       }
 
@@ -3117,10 +3112,9 @@
     } finally {
       if (state.replyAbortController === controller) {
         state.replyAbortController = null;
+        state.isReplySubmitting = false;
+        syncReplyUI();
       }
-
-      state.isReplySubmitting = false;
-      syncReplyUI();
     }
   }
 
@@ -3550,39 +3544,6 @@
     }
   }
 
-  function renderTopicError(topicUrl, fallbackTitle, error) {
-    cancelLoadMoreRequest();
-    cancelReplyRequest();
-    state.currentTopic = null;
-    state.currentLatestRepliesTopic = null;
-    state.currentTargetSpec = null;
-    state.currentResolvedTargetPostNumber = null;
-    state.deferOwnerFilterAutoLoad = false;
-    state.isLoadingMorePosts = false;
-    state.isRefreshingLatestReplies = false;
-    state.isReplySubmitting = false;
-    state.loadMoreError = "";
-    state.loadMoreStatus = null;
-    state.title.textContent = fallbackTitle || "帖子预览";
-    state.meta.textContent = "智能预览暂时不可用。";
-    resetReplyComposer();
-    syncLatestRepliesRefreshUI();
-
-    const container = document.createElement("div");
-    container.className = "ld-topic-error-state";
-
-    const errorNote = document.createElement("div");
-    errorNote.className = "ld-topic-note ld-topic-note-error";
-    errorNote.textContent = `预览加载失败：${error?.message || "未知错误"}`;
-
-    const hintNote = document.createElement("div");
-    hintNote.className = "ld-topic-note";
-    hintNote.textContent = `可以点右上角“新标签打开”查看原帖：${topicUrl}`;
-
-    container.append(errorNote, hintNote);
-    state.content.replaceChildren(container);
-  }
-
   function renderIframeFallback(topicUrl, fallbackTitle, error, forcedIframe = false) {
     if (state.cfChallenge) {
       syncCfChallengeNotice();
@@ -3604,7 +3565,7 @@
     state.loadMoreError = "";
     state.loadMoreStatus = null;
     state.title.textContent = fallbackTitle || "帖子预览";
-    state.meta.textContent = forcedIframe ? "当前为整页模式。" : "接口预览失败，已回退为完整页面。";
+    state.meta.textContent = forcedIframe ? "" : "接口预览失败，已回退为完整页面。";
     resetReplyComposer();
     syncLatestRepliesRefreshUI();
 
@@ -4356,6 +4317,10 @@
         ? data.errors.join("；")
         : (data?.error || `Unexpected response: ${response.status}`);
       throw new Error(message);
+    }
+
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("未能确认回复是否发送成功，草稿已保留，请先检查主题后再试。");
     }
 
     return data;
@@ -5379,7 +5344,8 @@
   function scheduleBookmarkRefresh(delay) {
     const b = state.bookmarks;
     clearTimeout(b.refreshTimer);
-    if (!b.user || state.settings.enhancedBookmarks === "off" || state.previewPageHidden) return;
+    b.refreshTimer = 0;
+    if (!b.user || state.settings.enhancedBookmarks === "off" || state.previewPageHidden || document.hidden) return;
     b.refreshTimer = setTimeout(refreshBookmarkCache, delay ?? Math.max(0, b.cacheAt + 3600000 - Date.now()));
   }
 
@@ -5590,7 +5556,7 @@
     if (state.trustPanel) new ResizeObserver(positionBookmarkPanel).observe(state.trustPanel);
     window.addEventListener("resize", positionBookmarkPanel);
     positionBookmarkPanel();
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleBookmarkRefresh(); });
+    document.addEventListener("visibilitychange", () => scheduleBookmarkRefresh());
     dialog.addEventListener("pointerenter", () => clearTimeout(b.closeTimer));
     dialog.addEventListener("pointerleave", scheduleBookmarkPanelClose);
     dialog.addEventListener("focusout", scheduleBookmarkPanelClose);
@@ -6864,10 +6830,6 @@
     }
   }
 
-  function getTopicTargetPostNumber(topicUrl, topicIdHint = null) {
-    return getTopicTargetSpec(topicUrl, topicIdHint)?.targetPostNumber || null;
-  }
-
   function navigateToPost(postNumber) {
     const numericPostNumber = Number(postNumber);
     if (!Number.isSafeInteger(numericPostNumber) || numericPostNumber <= 0) {
@@ -7313,29 +7275,59 @@
       const nextNumber = path[path.indexOf(number) + 1];
       if (!isLegacy && path.includes(number) && nextNumber) {
         const child = topic.post_stream.posts.find((p) => p.post_number === nextNumber);
-        if (child) cached = { posts: [...(cached?.posts || []).filter((p) => p.post_number !== nextNumber), child].sort((a, b) => a.post_number - b.post_number),
+        if (child) cached = { ...cached, posts: [...(cached?.posts || []).filter((p) => p.post_number !== nextNumber), child].sort((a, b) => a.post_number - b.post_number),
+          pendingPosts: (cached?.pendingPosts || []).filter((p) => p.post_number !== nextNumber),
           after: cached?.after || 1, complete: cached?.complete || false };
       }
-      if (!cached || (more && !cached.complete)) {
-        const after = cached?.after || 1;
-        const response = await fetchPreviewResponse(`/posts/${parentPost.id}/replies?after=${after}`, {
-          credentials: "include", signal, headers: { Accept: "application/json" }
-        });
-        if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取回复");
-        const data = await response.json();
-        if (!Array.isArray(data)) throw new Error("回复数据不可用");
-        const posts = data.filter((p) => p && Number.isSafeInteger(p.post_number) && p.post_number > number &&
-          Number.isSafeInteger(p.id) && typeof p.cooked === "string" &&
-          (!p.topic_id || p.topic_id === topic.id) && (!p.reply_to_post_number || p.reply_to_post_number === number));
-        const merged = new Map((cached?.posts || []).map((p) => [p.post_number, p]));
-        for (const post of posts) merged.set(post.post_number, post);
-        const next = Math.max(after, ...posts.map((p) => p.post_number));
-        cached = { posts: Array.from(merged.values()).sort((a, b) => a.post_number - b.post_number), after: next,
-          complete: next <= after || merged.size >= parentPost.reply_count };
-        if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
-        state.directReplyCache.set(number, cached);
-        for (const post of posts) state.replyParentCache.set(post.post_number, post);
+      if (!cached) cached = { posts: [], pendingPosts: [], after: 1, complete: false };
+      let needsNextPage = more;
+      if (more && cached.pendingPosts?.length) {
+        cached = { ...cached, posts: [...cached.posts, ...cached.pendingPosts].sort((a, b) => a.post_number - b.post_number), pendingPosts: [] };
+        needsNextPage = false;
       }
+      let pageError = false;
+      // 只有预读到新的直接回复才提供分页按钮，避免计数偏大或定位缓存产生空按钮。
+      while (!cached.complete && !cached.pendingPosts?.length) {
+        try {
+          const after = cached?.after || 1;
+          const response = await fetchPreviewResponse(`/posts/${parentPost.id}/replies?after=${after}`, {
+            credentials: "include", signal, headers: { Accept: "application/json" }
+          });
+          if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取回复");
+          const data = await response.json();
+          if (!Array.isArray(data)) throw new Error("回复数据不可用");
+          const replies = data.filter((p) => p && Number.isSafeInteger(p.post_number) && p.post_number > number &&
+            Number.isSafeInteger(p.id) && (!p.topic_id || p.topic_id === topic.id));
+          const posts = replies.filter((p) => typeof p.cooked === "string" &&
+            (!p.reply_to_post_number || p.reply_to_post_number === number));
+          const merged = new Map(cached.posts.map((p) => [p.post_number, p]));
+          const pending = new Map();
+          for (const post of posts) {
+            if (merged.has(post.post_number)) merged.set(post.post_number, post);
+            else pending.set(post.post_number, post);
+          }
+          // 接口总数包含引用关系；分页计数和游标不能只使用过滤后的直接回复。
+          const receivedNumbers = new Set(cached?.receivedNumbers || (cached?.posts || []).map((p) => p.post_number));
+          for (const post of replies) receivedNumbers.add(post.post_number);
+          const next = Math.max(after, ...replies.map((p) => p.post_number));
+          const showPage = !cached.posts.length || needsNextPage;
+          if (showPage) {
+            for (const [postNumber, post] of pending) merged.set(postNumber, post);
+            if (pending.size) needsNextPage = false;
+          }
+          cached = { posts: Array.from(merged.values()).sort((a, b) => a.post_number - b.post_number),
+            pendingPosts: showPage ? [] : Array.from(pending.values()).sort((a, b) => a.post_number - b.post_number), after: next,
+            receivedNumbers: Array.from(receivedNumbers), complete: next <= after || receivedNumbers.size >= parentPost.reply_count };
+          if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
+          state.directReplyCache.set(number, cached);
+          for (const post of posts) state.replyParentCache.set(post.post_number, post);
+        } catch (error) {
+          if (signal.aborted || !cached.posts.length) throw error;
+          pageError = true;
+          break;
+        }
+      }
+      if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
       if (!isLegacy) {
         // 回复摘要可能缺少 Boost 权限，补取服务器提供的完整楼层，不推断权限。
         const missing = cached.posts.filter((post) => !post.deleted && typeof post.can_boost !== "boolean");
@@ -7354,17 +7346,17 @@
       const nodes = cached.posts.filter((p) => !ancestors.includes(p.post_number))
         .map((p) => isLegacy ? buildPostReplyPreviewRow(p) : buildPostCard(p, getTopicOwnerIdentity(topic), { ancestors }));
       if (cached) state.directReplyCache.set(number, cached);
-      const summary = document.createElement("p");
-      summary.className = "ld-inline-status";
-      summary.textContent = cached.posts.length
-        ? `已显示 ${cached.posts.length} / ${parentPost.reply_count} 条直接回复`
-        : "暂无可显示的直接回复，相关帖子可能已被删除。";
-      if (!cached.complete || !cached.posts.length) nodes.unshift(summary);
-      if (!cached.complete) {
+      if (pageError || !cached.posts.length) {
+        const summary = document.createElement("p");
+        summary.className = "ld-inline-status";
+        summary.textContent = pageError ? "后续回复加载失败，请重试。" : "暂无可显示的直接回复，相关帖子可能已被删除。";
+        nodes.unshift(summary);
+      }
+      if (pageError || cached.pendingPosts?.length) {
         const moreButton = document.createElement("button");
         moreButton.type = "button";
         moreButton.className = "ld-inline-more";
-        moreButton.textContent = "加载更多回复";
+        moreButton.textContent = pageError ? "重试加载回复" : "加载更多回复";
         nodes.push(moreButton);
       }
       return nodes;
@@ -7486,6 +7478,7 @@
   }
 
   function resetReplyComposer() {
+    cancelReplyRequest();
     state.replyComposerSessionId += 1;
     cancelReplyUploads();
 

@@ -597,34 +597,28 @@ toolbar_layout_state() {
   local script
   script=$(cat <<'EOF'
 (() => {
-  const toolbar = document.querySelector("#ld-drawer-root .ld-drawer-toolbar");
-  const actions = document.querySelector("#ld-drawer-root .ld-drawer-actions");
+  const toolbar = document.querySelector("#ld-drawer-root .ld-drawer-header-top");
+  const actions = toolbar?.querySelector(".ld-drawer-header-actions");
+  const bounds = actions?.getBoundingClientRect();
   const items = Array.from(actions?.querySelectorAll("button, a") || [])
-    .filter((node) => !node.hidden)
+    .filter((node) => !node.hidden && node.getBoundingClientRect().width > 0)
     .map((node) => {
       const rect = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      const text = (node.textContent || "").replace(/\s+/g, " ").trim();
       return {
-        text,
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        whiteSpace: style.whiteSpace,
-        display: style.display
+        text: node.getAttribute("aria-label") || node.textContent.trim(),
+        left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+        width: rect.width, height: rect.height
       };
     });
-
-  const toolbarStyle = toolbar ? getComputedStyle(toolbar) : null;
-  const visibleTextItems = items.filter((item) => item.text);
-
   return {
     toolbarExists: Boolean(toolbar),
     actionsExists: Boolean(actions),
-    gridTemplateColumns: toolbarStyle?.gridTemplateColumns || null,
     visibleCount: items.length,
     items,
-    nowrapOk: visibleTextItems.every((item) => item.whiteSpace === "nowrap"),
-    widthOk: visibleTextItems.every((item) => item.width >= 44 && item.width > item.height)
+    labelsOk: items.every((item) => item.text),
+    layoutOk: Boolean(bounds) && items.every((item) => item.width >= 28 && item.height >= 28 &&
+      item.left >= bounds.left && item.right <= bounds.right + 1 && item.top >= bounds.top &&
+      item.bottom <= bounds.bottom + 1 && Math.abs(item.top - items[0].top) <= 1)
   };
 })()
 EOF
@@ -1268,12 +1262,12 @@ run_015() {
 
   if [ "$(echo "$state" | jq -r '.toolbarExists')" = "true" ] \
     && [ "$(echo "$state" | jq -r '.actionsExists')" = "true" ] \
-    && [ "$(echo "$state" | jq -r '.nowrapOk')" = "true" ] \
-    && [ "$(echo "$state" | jq -r '.widthOk')" = "true" ] \
-    && [ "$(echo "$state" | jq -r '.visibleCount')" -ge 5 ]; then
-    record_pass "$case_id" "items=$(echo "$state" | jq -c '.items | map({text, width, height, whiteSpace})')"
+    && [ "$(echo "$state" | jq -r '.labelsOk')" = "true" ] \
+    && [ "$(echo "$state" | jq -r '.layoutOk')" = "true" ] \
+    && [ "$(echo "$state" | jq -r '.visibleCount')" -ge 4 ]; then
+    record_pass "$case_id" "items=$(echo "$state" | jq -c '.items | map({text, width, height})')"
   else
-    record_fail "$case_id" "state=$(echo "$state" | jq -c '{gridTemplateColumns, visibleCount, nowrapOk, widthOk, items}')"
+    record_fail "$case_id" "state=$(echo "$state" | jq -c '{visibleCount, labelsOk, layoutOk, items}')"
   fi
 }
 

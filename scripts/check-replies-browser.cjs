@@ -30,6 +30,7 @@ try {
     window.replyRequests = [];
     window.replyFail = false;
     window.replyPending = false;
+    window.replyPages = new Map();
     window.makePost = (number, parent = null, count = 0) => ({
       id:100+number, topic_id:1, post_number:number, username:'user'+number, name:'用户 '+number,
       created_at:'2026-01-01T00:00:00Z', reply_to_post_number:parent, reply_to_user:parent ? {username:'user'+parent} : null,
@@ -45,6 +46,9 @@ try {
       const json = data => new Response(JSON.stringify(data), {headers:{'content-type':'application/json'}});
       if (url.pathname === '/topics/timings') return json({});
       if (url.pathname.startsWith('/posts/')) {
+        const page=replyPages.get(url.pathname+':'+request.after);
+        if (page instanceof Error) throw page;
+        if (page) return json(page);
         if (replyPending && url.pathname === '/posts/109/replies') return new Promise(resolve => {request.resolve=resolve;});
         if (replyFail && url.pathname === '/posts/109/replies') return new Response('{}',{status:503,headers:{'content-type':'application/json'}});
         if (url.pathname === '/posts/by_number/1/3') return json(makePost(3,2,2));
@@ -60,7 +64,7 @@ try {
       return json(replyTopic);
     };
     const style = document.createElement('style'); style.textContent=${JSON.stringify(css)};document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.replyTest = { state, getVisibleReadingPosts, appendLoadedPostsIncrementally, tickReading, flushReading, loadSettings, resetSettings, navigateToPost, loadTopic, buildTopicViewModel, appendCreatedReplyToCurrentTopic, refreshCurrentView, loadVisibleInlineReplies }; ")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.replyTest = { state, getVisibleReadingPosts, appendLoadedPostsIncrementally, tickReading, flushReading, loadSettings, resetSettings, navigateToPost, loadTopic, buildTopicViewModel, appendCreatedReplyToCurrentTopic, refreshCurrentView, loadVisibleInlineReplies, buildPostReplyStatWrap }; ")}
     window.check = (value,message) => {if (!value) throw Error(message);};
     window.settle = async () => {
       await new Promise(r=>setTimeout(r,60));
@@ -249,6 +253,69 @@ try {
     } finally {regions.forEach(r=>r.remove());s.inlineReplyObservers=observers;s.inlineReplyControllers=controllers;}
     return '自动展开并发上限、等待续传与视野外排除：通过';
   })()`).trim());
+  console.log(evaluate(`(async()=>{
+    const s=replyTest.state;
+    const mount=async count=>{
+      s.directReplyCache.delete(20);
+      const wrap=replyTest.buildPostReplyStatWrap(makePost(20,null,count),{count},[20]);
+      s.content.append(wrap.inlineThread);await wrap.openThread();await settle();
+      return wrap.inlineThread;
+    };
+    const originalPosts=s.currentTopic.post_stream.posts;
+    const originalPath=s.currentTopic.__sidePeekThreadTargetPath;
+    const chain=Array.from({length:8},(_,i)=>makePost(21+i,20+i,i===7?0:1));
+    s.currentTopic.post_stream.posts=[...originalPosts,...chain];
+    s.currentTopic.__sidePeekThreadTargetPath=[20,...chain.map(p=>p.post_number)];
+    for(const post of chain) replyPages.set('/posts/'+(100+post.reply_to_post_number)+'/replies:1',[post]);
+    const chainRegion=await mount(1);
+    for(const post of chain) await bringTree(post.post_number);
+    check(chainRegion.querySelectorAll('.ld-inline-post').length===8,'目标路径没有展开完整对话');
+    check(!chainRegion.querySelector('.ld-inline-more'),'唯一子回复已在定位路径中却堆积空分页按钮');
+    window.replyChainRegion=chainRegion;s.currentTopic.post_stream.posts=originalPosts;s.currentTopic.__sidePeekThreadTargetPath=originalPath;
+    for(let n=20;n<=28;n++) s.directReplyCache.delete(n);
+    replyPages.clear();
+    replyPages.set('/posts/120/replies:1',[makePost(21,20),makePost(22,19)]);
+    let region=await mount(2);
+    check(region.querySelectorAll(':scope > .ld-inline-post').length===1,'引用回复混入直接子树');
+    check(!region.querySelector('.ld-inline-more'),'接口已返回全部关联回复却仍显示加载更多');
+    region.remove();
+    replyPages.set('/posts/120/replies:1',[makePost(21,20)]);
+    replyPages.set('/posts/120/replies:21',[makePost(21,20),makePost(22,19)]);
+    replyPages.set('/posts/120/replies:22',[makePost(23,20),makePost(24,19)]);
+    region=await mount(4);
+    check(region.querySelector('.ld-inline-more'),'尚有后续分页却没有按钮');
+    check(!region.querySelector('[data-thread-post-number="23"]'),'预读回复提前渲染并可能被计入阅读');
+    region.querySelector('.ld-inline-more').click();await settle();
+    check(region.querySelectorAll(':scope > .ld-inline-post').length===2,'全为引用的中间页截断了后续直接回复');
+    check(!region.querySelector('.ld-inline-more'),'引用与重复楼号导致多余分页');
+    check(s.directReplyCache.get(20).after===24,'游标未按接口原始页推进');
+    region.remove();
+    replyPages.set('/posts/120/replies:21',[makePost(21,20)]);
+    region=await mount(4);
+    check(!region.querySelector('.ld-inline-more'),'无游标进展时未停止分页');
+    region.remove();
+    replyPages.set('/posts/120/replies:21',[]);
+    region=await mount(4);
+    check(!region.querySelector('.ld-inline-more'),'空页未停止分页');region.remove();
+    replyPages.set('/posts/120/replies:21',[makePost(22,19)]);
+    replyPages.set('/posts/120/replies:22',new Error('测试分页失败'));
+    region=await mount(5);
+    check(region.querySelector('.ld-inline-post') && region.textContent.includes('加载失败') && s.directReplyCache.get(20).after===22,'过滤页后的失败丢失游标或未提示');
+    replyPages.set('/posts/120/replies:22',[makePost(23,19)]);
+    replyPages.set('/posts/120/replies:23',[makePost(24,20),makePost(25,19)]);
+    Array.from(region.querySelectorAll('button')).find(b=>b.textContent==='重试加载回复').click();await settle();
+    check(region.querySelectorAll(':scope > .ld-inline-post').length===2 && !region.querySelector('.ld-inline-more'),'过滤页失败重试未续传完成');
+    region.remove();replyPages.clear();s.directReplyCache.delete(20);
+    return '八层定位路径无空按钮、确认下一页、预读不渲染、过滤页/空页终止与失败续传：通过';
+  })()`).trim());
+  if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
+    for (const width of [1280,390]) {
+      run(["set","viewport",String(width),"844"]);
+      evaluate(`replyChainRegion.lastElementChild.scrollIntoView({block:'end'})`);
+      shot(`tree-no-empty-buttons-${width}`);
+    }
+  }
+  evaluate(`replyChainRegion.remove();delete window.replyChainRegion`);
   if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
     run(["set","viewport","1280","1600"]);
     evaluate(`(async()=>{for(const n of [2,3,4,8]) await bringTree(n);replyTest.state.content.querySelector('[data-thread-post-number="2"]').scrollIntoView({block:'start'});await settle();})()`);

@@ -25,19 +25,27 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v1.4.0
+## 下载与安装 · v1.4.1
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.0/linux-do-sidepeek-1.4.0-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.0/linux-do-sidepeek-1.4.0-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.0/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linux-do-sidepeek-1.4.1-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linux-do-sidepeek-1.4.1-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.4.0) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.4.1) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 1.4.1 版本更新摘要
+
+- 修复楼中楼“加载更多回复”点击后没有新内容的问题，仅在确认有新直接回复时显示按钮。
+- 移除重复的模式说明与“已显示 N / M 条直接回复”提示，保留必要的失败和空结果提示。
+- 修复切帖时旧回复、图片上传干扰新会话，以及登录会话变化后阅读记录停止的问题。
+- 发帖接口返回异常内容时保留草稿；隐藏标签页停止收藏刷新定时器，清理无用函数与样式。
+- 扩展与油猴同步更新，无新增权限；真实站点及 Firefox／油猴实装仍需验证。
 
 ## 1.4.0 版本更新摘要
 

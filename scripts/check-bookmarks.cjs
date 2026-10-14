@@ -174,10 +174,12 @@ function checkBrowser() {
     evaluate("bookmarkTest.state.bookmarks.cacheAt=Date.now()-3600001; bookmarkTest.scheduleBookmarkRefresh()");
     wait("!bookmarkTest.state.bookmarks.refreshController && Date.now()-bookmarkTest.state.bookmarks.cacheAt<5000");
     assert.equal(evaluate("calls.filter(c=>c.path.startsWith('/u/')).length===cachedPages+2").trim(), "true", "到期应自动刷新所有分页");
-    evaluate("window.beforeHidden=calls.length; Object.defineProperty(document,'hidden',{configurable:true,value:true})");
+    evaluate("window.beforeHidden=calls.length; Object.defineProperty(document,'hidden',{configurable:true,value:true}); document.dispatchEvent(new Event('visibilitychange'))");
     evaluate("bookmarkTest.refreshBookmarkCache()");
     assert.equal(evaluate("calls.length===beforeHidden").trim(), "true", "后台标签页延后自动刷新");
-    evaluate("delete document.hidden; bookmarkTest.scheduleBookmarkRefresh()");
+    assert.equal(evaluate("bookmarkTest.state.bookmarks.refreshTimer===0").trim(), "true", "隐藏页不循环唤醒刷新定时器");
+    evaluate("delete document.hidden; document.dispatchEvent(new Event('visibilitychange'))");
+    assert.equal(evaluate("bookmarkTest.state.bookmarks.refreshTimer>0").trim(), "true", "恢复可见时重新调度刷新");
     assert.equal(evaluate("bookmarkTest.state.bookmarks.compact && !bookmarkTest.state.bookmarks.dialog.matches(':modal') && !bookmarkTest.state.bookmarks.dialog.contains(document.activeElement)").trim(), "true");
     run(["hover", ".ld-bookmark-list"]);
     assert.equal(evaluate("bookmarkTest.state.bookmarks.dialog.open").trim(), "true");
