@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.4.3
+// @version      1.4.4
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -2158,6 +2158,11 @@
 
   #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-body {
     overflow: hidden;
+  }
+
+  #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-title-group,
+  #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-header:has(.ld-drawer-meta:empty) {
+    display: none;
   }
 
   #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-content {
@@ -6982,7 +6987,10 @@
       } catch {
         return false;
       }
-      if (url.origin !== location.origin || !getTopicIdFromUrl(url.toString())) return false;
+      const topicId = getTopicIdFromUrl(url.toString());
+      if (url.origin !== location.origin || !topicId) return false;
+      // 整页内同帖的时间轴和楼层跳转交给原站，避免重建 iframe 并误用日期作标题。
+      if (link.ownerDocument !== document && topicId === getTopicIdFromUrl(state.currentUrl, state.currentTopicIdHint)) return false;
       event.preventDefault();
       event.stopPropagation();
       openDrawer(normalizeTopicUrl(url), link.textContent.trim(), null);
@@ -7227,6 +7235,8 @@
 
       const iframe = document.createElement("iframe");
       iframe.className = "ld-topic-iframe";
+      // 首次显示前先应用内页样式，避免导航栏先出现再收起。
+      iframe.style.opacity = "0";
       iframe.src = topicUrl;
       iframe.loading = "lazy";
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
@@ -7235,10 +7245,15 @@
         try {
           const frameDocument = iframe.contentDocument;
           if (!frameDocument || iframe.contentWindow.location.origin !== location.origin) return;
+          const style = frameDocument.createElement("style");
+          style.textContent = ".d-header-wrap, .d-header { display: none !important; }";
+          frameDocument.head.append(style);
           frameDocument.addEventListener("click", handlePreviewTopicClick, true);
           frameDocument.addEventListener("keydown", handlePreviewHistoryKeydown, true);
         } catch {
           // 跨源验证页不可读取；返回同源页面后由 load 重新绑定。
+        } finally {
+          iframe.style.removeProperty("opacity");
         }
       });
 

@@ -19,6 +19,7 @@ const css = fs.readFileSync(path.join(__dirname, "../src/content.css"), "utf8");
 const html = '<!doctype html><meta charset="utf-8"><title>抽屉导航固定页</title><main id="main-outlet">' +
   '<div class="topic-list-item"><a class="title" href="/t/nav/101">主题 101</a></div></main>';
 const frameHtml = '<!doctype html><meta charset="utf-8"><title>整页主题</title>' +
+  '<div class="d-header-wrap"><header class="d-header">LINUX DO 内嵌导航</header></div><h1>整页主题正文标题</h1><p>主题正文</p>' +
   '<a id="frame-next" href="/t/nav/102">整页内主题 102</a><input aria-label="整页输入" id="frame-input">';
 
 try {
@@ -130,16 +131,48 @@ try {
     if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `smart-settings-${width}.png`)]);
     run(["press", "Escape"]);
   }
-  evaluate(`navTest.closeDrawer(); navTest.state.settings.previewMode='iframe'; navTest.openDrawer('https://linux.do/t/nav/101','整页主题',null)`);
+  evaluate(`navTest.closeDrawer(); navTest.state.settings.previewMode='iframe'; navTest.openDrawer('https://linux.do/t/nav/101','整页主题',null); if(getComputedStyle(document.querySelector('.ld-topic-iframe')).opacity!=='0') throw Error('内页样式生效前已显示 iframe')`);
   run(["wait", "--fn", "document.querySelector('.ld-topic-iframe')?.contentDocument?.querySelector('#frame-next')"]);
+  for (const width of [1280, 390]) {
+    run(["set", "viewport", String(width), "800"]);
+    console.log(evaluate(`(() => {
+      const frame=document.querySelector('.ld-topic-iframe'), doc=frame.contentDocument;
+      if(getComputedStyle(frame).opacity!=='1') throw Error('加载后 iframe 未显示');
+      if(getComputedStyle(navTest.state.title.closest('.ld-drawer-header')).display!=='none' ||
+          frame.contentWindow.getComputedStyle(doc.querySelector('.d-header-wrap')).display!=='none') throw Error('整页重复标题或导航未隐藏');
+      if(!doc.querySelector('h1').getBoundingClientRect().height || !document.querySelector('.ld-drawer-close').getBoundingClientRect().height) throw Error('正文标题或扩展操作被隐藏');
+      return '整页 ${width}px 隐藏重复标题/导航、保留正文与操作：通过';
+    })()`).trim());
+    if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `iframe-content-${width}.png`)]);
+  }
   console.log(evaluate(`(() => {
     const frame=document.querySelector('.ld-topic-iframe'), doc=frame.contentDocument;
     const key=(target,props={})=>{const e=new frame.contentWindow.KeyboardEvent('keydown',{key:'ArrowLeft',altKey:true,bubbles:true,cancelable:true,...props});target.dispatchEvent(e);return e;};
     if(!key(doc.body).defaultPrevented || navTest.state.currentUrl!=='https://linux.do/t/nav/101') throw Error('iframe 空历史未拦下浏览器后退');
     if(key(doc.querySelector('input')).defaultPrevented) throw Error('iframe 输入框方向键被抢占');
+    const title=navTest.state.title.textContent, historyLength=navTest.state.previewHistory.length;
+    for(const href of ['/t/nav/101/1', '/t/101/23', '/t/other-slug/101/7', '/t/nav/101?filter=summary#post_1']) {
+      const link=doc.createElement('a'); link.href=href; link.textContent='10月7日'; doc.body.append(link);
+      let nativeHandled=false;
+      link.addEventListener('click',event=>{
+        if(event.defaultPrevented) throw Error('同帖导航被扩展拦截');
+        nativeHandled=true; event.preventDefault();
+        frame.contentWindow.history.replaceState(null,'',href);
+      });
+      link.click(); link.remove();
+      if(!nativeHandled || document.querySelector('.ld-topic-iframe')!==frame || frame.contentDocument!==doc ||
+          navTest.state.title.textContent!==title || navTest.state.previewHistory.length!==historyLength) throw Error('同帖导航重建页面或污染标题/历史');
+    }
+    frame.contentWindow.history.replaceState(null,'','/latest');
+    const datedLink=doc.createElement('a'); datedLink.href='/t/nav/101/23'; datedLink.textContent='10月7日'; doc.body.append(datedLink);
+    let nativeHandled=false;
+    datedLink.addEventListener('click',event=>{if(event.defaultPrevented) throw Error('iframe 地址暂时不含主题 ID 时同帖链接被拦截');nativeHandled=true;event.preventDefault();});
+    datedLink.click(); datedLink.remove();
+    if(!nativeHandled || document.querySelector('.ld-topic-iframe')!==frame || navTest.state.title.textContent!==title) throw Error('iframe 地址不含主题 ID 时重建页面或污染标题');
+    frame.contentWindow.history.replaceState(null,'','/t/nav/101');
     doc.querySelector('#frame-next').click();
     if(navTest.state.currentUrl!=='https://linux.do/t/nav/102' || location.pathname!=='/latest') throw Error('整页主题链接未留在抽屉');
-    return '整页 iframe 点击、空历史和输入框按键：通过';
+    return '整页 iframe 同帖日期/楼层交给原站、跨帖点击、空历史和输入框按键：通过';
   })()`).trim());
   run(["wait", "--fn", "document.querySelector('.ld-topic-iframe')?.contentDocument?.querySelector('#frame-next')"]);
   evaluate(`document.querySelector('.ld-topic-iframe').contentDocument.body.focus()`);
@@ -151,9 +184,9 @@ try {
   run(["press", "Alt+ArrowRight"]);
   run(["wait", "--fn", "navTest.state.currentUrl.endsWith('/102')"]);
   console.log("整页 iframe 内真实键盘后退/前进：通过");
-  evaluate(`(() => {const frame=document.querySelector('.ld-topic-iframe');window.crossFrameLoaded=false;frame.addEventListener('load',()=>{window.crossFrameLoaded=true;},{once:true});frame.setAttribute('sandbox','allow-scripts');frame.srcdoc='<p>隔离源固定验证页</p>';})()`);
+  evaluate(`(() => {const frame=document.querySelector('.ld-topic-iframe');window.crossFrameLoaded=false;frame.addEventListener('load',()=>{window.crossFrameLoaded=true;},{once:true});frame.style.opacity='0';frame.setAttribute('sandbox','allow-scripts');frame.srcdoc='<p>隔离源固定验证页</p>';})()`);
   run(["wait", "--fn", "window.crossFrameLoaded && document.querySelector('.ld-topic-iframe').contentDocument === null"]);
-  evaluate(`if(!navTest.state.currentUrl.endsWith('/102')) throw Error('跨源验证页错误改写主题历史');navTest.state.shortcutsToggle.focus()`);
+  evaluate(`if(getComputedStyle(document.querySelector('.ld-topic-iframe')).opacity!=='1') throw Error('跨源验证页被隐藏');if(!navTest.state.currentUrl.endsWith('/102')) throw Error('跨源验证页错误改写主题历史');navTest.state.shortcutsToggle.focus()`);
   run(["press", "Alt+ArrowLeft"]);
   run(["wait", "--fn", "navTest.state.currentUrl.endsWith('/101') && document.querySelector('.ld-topic-iframe')?.contentDocument?.querySelector('#frame-next')"]);
   console.log("跨源 iframe 不接管、父页仍可返回同源主题：通过");

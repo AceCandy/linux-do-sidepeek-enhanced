@@ -3339,7 +3339,10 @@
     } catch {
       return false;
     }
-    if (url.origin !== location.origin || !getTopicIdFromUrl(url.toString())) return false;
+    const topicId = getTopicIdFromUrl(url.toString());
+    if (url.origin !== location.origin || !topicId) return false;
+    // 整页内同帖的时间轴和楼层跳转交给原站，避免重建 iframe 并误用日期作标题。
+    if (link.ownerDocument !== document && topicId === getTopicIdFromUrl(state.currentUrl, state.currentTopicIdHint)) return false;
     event.preventDefault();
     event.stopPropagation();
     openDrawer(normalizeTopicUrl(url), link.textContent.trim(), null);
@@ -3584,6 +3587,8 @@
 
     const iframe = document.createElement("iframe");
     iframe.className = "ld-topic-iframe";
+    // 首次显示前先应用内页样式，避免导航栏先出现再收起。
+    iframe.style.opacity = "0";
     iframe.src = topicUrl;
     iframe.loading = "lazy";
     iframe.referrerPolicy = "strict-origin-when-cross-origin";
@@ -3592,10 +3597,15 @@
       try {
         const frameDocument = iframe.contentDocument;
         if (!frameDocument || iframe.contentWindow.location.origin !== location.origin) return;
+        const style = frameDocument.createElement("style");
+        style.textContent = ".d-header-wrap, .d-header { display: none !important; }";
+        frameDocument.head.append(style);
         frameDocument.addEventListener("click", handlePreviewTopicClick, true);
         frameDocument.addEventListener("keydown", handlePreviewHistoryKeydown, true);
       } catch {
         // 跨源验证页不可读取；返回同源页面后由 load 重新绑定。
+      } finally {
+        iframe.style.removeProperty("opacity");
       }
     });
 

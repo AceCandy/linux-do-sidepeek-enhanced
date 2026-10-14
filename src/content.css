@@ -1972,6 +1972,11 @@ body.ld-drawer-page-open:has(#ld-drawer-settings:not([hidden])) #ld-trust-status
   overflow: hidden;
 }
 
+#ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-title-group,
+#ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-header:has(.ld-drawer-meta:empty) {
+  display: none;
+}
+
 #ld-drawer-root.ld-drawer-iframe-mode .ld-drawer-content {
   height: 100%;
   min-height: 0;
