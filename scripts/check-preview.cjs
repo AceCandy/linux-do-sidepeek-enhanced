@@ -38,9 +38,9 @@ vm.runInNewContext(source.replace(/^  init\(\);$/m, `
   getVisibleReadingPosts = () => globalThis.visible();
   closeImagePreview = cancelLoadMoreRequest = cancelDirectRepliesRequest = syncLatestRepliesRefreshUI = () => {};
   renderTopic = (...args) => globalThis.rendered.push(args);
-  showToast = () => {};
+  showToast = syncCfChallengeNotice = () => {};
   globalThis.test = { state, runTopicPrefetch, loadTopic, getCachedTopic, getTopicCacheKey, restoreCachedTopic,
-    startReading, tickReading, stopReading, flushReading, trackCurrentTopicVisit };
+    startReading, tickReading, stopReading, flushReading, trackCurrentTopicVisit, isCfChallengeResponse, fetchPreviewResponse };
 `), context);
 const api = context.test;
 const state = api.state;
@@ -224,6 +224,54 @@ async function main() {
   assert.equal(requests.at(-1).options.body.has("timings[1]"), false);
   assert.equal(requests.at(-1).options.body.get("timings[2]"), "700");
   reply(requests.at(-1), {}); await recovered;
+  const challengeHtml = '<script>window._cf_chl_opt = {};</script><script src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1"></script>';
+  for (const status of [200, 403, 429, 503]) {
+    assert.equal(await api.isCfChallengeResponse(new Response("challenge", { status, headers: { "cf-mitigated": "challenge" } })), true);
+    const response = new Response(challengeHtml, { status, headers: { "content-type": "text/html" } });
+    assert.equal(await api.isCfChallengeResponse(response), true, "无标志头时识别完整挑战页面");
+    assert.equal(await response.text(), challengeHtml, "识别不能消耗调用方的响应体");
+  }
+  for (const [body, type, status] of [
+    ['{"errors":["无权访问"]}', "application/json", 403],
+    ["Cloudflare: Access denied", "text/html", 403],
+    ["Too many requests", "text/html", 429],
+    ["Service unavailable", "text/html", 503],
+    [JSON.stringify({ cooked: challengeHtml }), "application/json", 200],
+    ['<script src="/cdn-cgi/challenge-platform/test"></script>', "text/html", 403]
+  ]) assert.equal(await api.isCfChallengeResponse(new Response(body, { status, headers: { "content-type": type } })), false, "业务错误、限流及正文不误判");
+
+  const staleController = new AbortController();
+  const staleRequest = api.fetchPreviewResponse("/t/1.json", { signal: staleController.signal });
+  const staleRejected = assert.rejects(staleRequest, { name: "AbortError" });
+  staleController.abort();
+  requests.at(-1).resolve(new Response("", { status: 403, headers: { "cf-mitigated": "challenge" } }));
+  await staleRejected;
+  assert.equal(state.cfChallenge, false, "切帖后旧响应不能暂停新页面");
+
+  const pendingPrefetch = new AbortController();
+  state.prefetchRequests.set("cf-pending", { controller: pendingPrefetch });
+  state.abortController = new AbortController();
+  const pendingTopic = state.abortController;
+  const challenge = api.fetchPreviewResponse("/t/1.json", {});
+  const rejected = assert.rejects(challenge, /验证尚未通过/);
+  requests.at(-1).resolve(new Response("", { status: 403, headers: { "cf-mitigated": "challenge" } }));
+  await rejected;
+  assert.equal(state.cfChallenge, true);
+  assert.equal(pendingPrefetch.signal.aborted, true, "遇盾取消在途预取");
+  assert.equal(pendingTopic.signal.aborted, true, "遇盾取消在途主题读取");
+  state.prefetchRequests.delete("cf-pending");
+  const pausedCount = requests.length;
+  now += 120000;
+  api.runTopicPrefetch();
+  await assert.rejects(api.fetchPreviewResponse("/posts/101/replies", {}), /请先完成网站验证/);
+  assert.equal(requests.length, pausedCount, "暂停不会因普通冷却到期解除，也不发送楼层读取");
+  state.cfRetryController = new AbortController();
+  const probe = api.fetchPreviewResponse("/t/1.json", { signal: state.cfRetryController.signal });
+  reply(requests.at(-1), topic(1));
+  await probe;
+  assert.equal(requests.length, pausedCount + 1, "只放行手动验证读取");
+  assert.equal(state.cfChallenge, true, "仅返回响应不能提前解除暂停");
+  console.log("CF 标志头/HTML 识别、普通错误不误判、取消竞态、持续暂停及手动探测：通过");
   console.log("预取限速/并发/暂停、点击复用、楼层补取、实际阅读与会话边界：通过");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

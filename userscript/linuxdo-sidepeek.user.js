@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.3.0
+// @version      1.4.0
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -1646,7 +1646,6 @@
 
   #ld-drawer-root .ld-drawer-side-actions .ld-drawer-nav,
   #ld-drawer-root .ld-drawer-side-actions .ld-drawer-refresh,
-  #ld-drawer-root .ld-drawer-side-actions .ld-drawer-reply-toggle,
   #ld-drawer-root .ld-drawer-side-actions .ld-drawer-link,
   #ld-drawer-root .ld-drawer-side-actions .ld-drawer-close,
   #ld-drawer-root .ld-drawer-side-actions .ld-drawer-settings-toggle {
@@ -1692,23 +1691,6 @@
 
   #ld-drawer-root .ld-drawer-side-actions [data-tooltip]:hover::after {
     opacity: 1;
-  }
-
-  #ld-drawer-root .ld-drawer-side-actions .ld-drawer-reply-toggle {
-    border-color: color-mix(in srgb, var(--tertiary, #3b82f6) 30%, var(--primary-low, rgba(15, 23, 42, 0.12)));
-    background: color-mix(in srgb, var(--tertiary, #3b82f6) 10%, var(--secondary, #fff));
-    color: var(--tertiary, #3b82f6);
-  }
-
-  #ld-drawer-root .ld-drawer-side-actions .ld-drawer-reply-toggle[aria-expanded="true"] {
-    border-color: var(--tertiary, #3b82f6);
-    background: color-mix(in srgb, var(--tertiary, #3b82f6) 16%, var(--secondary, #fff));
-  }
-
-  #ld-drawer-root .ld-drawer-side-actions .ld-drawer-reply-toggle:disabled,
-  #ld-drawer-root .ld-drawer-side-actions .ld-drawer-reply-toggle.is-disabled {
-    opacity: 0.64;
-    cursor: not-allowed;
   }
 
   #ld-drawer-root .ld-drawer-refresh.is-refreshing svg {
@@ -1877,7 +1859,7 @@
   }
 
   #ld-drawer-root .ld-drawer-header-actions .ld-drawer-nav,
-  #ld-drawer-root .ld-drawer-header-actions .ld-drawer-reply-toggle,
+  #ld-drawer-root .ld-drawer-header-actions .ld-drawer-shortcuts-toggle,
   #ld-drawer-root .ld-drawer-header-actions .ld-drawer-link,
   #ld-drawer-root .ld-drawer-header-actions .ld-drawer-close,
   #ld-drawer-root .ld-drawer-header-actions .ld-drawer-settings-toggle {
@@ -1933,12 +1915,6 @@
   #ld-drawer-root .ld-drawer-header-actions [data-tooltip]:hover::after {
     opacity: 1;
     transform: translateY(0);
-  }
-
-  #ld-drawer-root .ld-drawer-header-actions .ld-drawer-reply-toggle {
-    border-color: color-mix(in srgb, var(--tertiary, #3b82f6) 30%, var(--primary-low, rgba(15, 23, 42, 0.12)));
-    background: color-mix(in srgb, var(--tertiary, #3b82f6) 10%, var(--secondary, #fff));
-    color: var(--tertiary, #3b82f6);
   }
 
   #ld-drawer-root .ld-drawer-title-group {
@@ -2003,7 +1979,7 @@
 
   #ld-drawer-root .ld-drawer-nav,
   #ld-drawer-root .ld-drawer-refresh,
-  #ld-drawer-root .ld-drawer-reply-toggle,
+  #ld-drawer-root .ld-drawer-shortcuts-toggle,
   #ld-drawer-root .ld-drawer-link,
   #ld-drawer-root .ld-drawer-close,
   #ld-drawer-root .ld-drawer-settings-toggle,
@@ -2021,15 +1997,13 @@
   }
 
   #ld-drawer-root .ld-drawer-nav:disabled,
-  #ld-drawer-root .ld-drawer-refresh:disabled,
-  #ld-drawer-root .ld-drawer-reply-toggle:disabled {
+  #ld-drawer-root .ld-drawer-refresh:disabled {
     opacity: 0.48;
     cursor: not-allowed;
   }
 
   #ld-drawer-root .ld-drawer-nav:disabled:hover,
-  #ld-drawer-root .ld-drawer-refresh:disabled:hover,
-  #ld-drawer-root .ld-drawer-reply-toggle:disabled:hover {
+  #ld-drawer-root .ld-drawer-refresh:disabled:hover {
     border-color: var(--primary-low, rgba(15, 23, 42, 0.12));
     color: inherit;
   }
@@ -2037,7 +2011,7 @@
   #ld-drawer-root .ld-drawer-close:hover,
   #ld-drawer-root .ld-drawer-nav:hover,
   #ld-drawer-root .ld-drawer-refresh:hover,
-  #ld-drawer-root .ld-drawer-reply-toggle:hover,
+  #ld-drawer-root .ld-drawer-shortcuts-toggle:hover,
   #ld-drawer-root .ld-drawer-link:hover,
   #ld-drawer-root .ld-drawer-settings-toggle:hover,
   #ld-drawer-root .ld-settings-close:hover,
@@ -2050,6 +2024,12 @@
     border-color: var(--tertiary, #3b82f6);
     color: var(--tertiary, #3b82f6);
     background: color-mix(in srgb, var(--tertiary, #3b82f6) 10%, var(--secondary, #fff));
+  }
+
+  body.ld-drawer-page-open:has(#ld-drawer-settings:not([hidden])) #ld-bookmarks-trigger,
+  body.ld-drawer-page-open:has(#ld-drawer-settings:not([hidden])) #ld-trust-status,
+  #ld-drawer-root:has(#ld-drawer-settings:not([hidden])) .ld-toast-stack {
+    visibility: hidden;
   }
 
   #ld-drawer-root .ld-drawer-settings {
@@ -2105,6 +2085,58 @@
   #ld-drawer-root .ld-setting-field {
     display: grid;
     gap: 6px;
+  }
+
+  #ld-drawer-root .ld-setting-field[hidden] {
+    display: none;
+  }
+
+  #ld-drawer-root .ld-shortcuts {
+    box-sizing: border-box;
+    width: min(540px, calc(100vw - 24px));
+    max-width: none;
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    padding: 20px;
+    overflow: auto;
+    border: 1px solid var(--primary-low, #ddd);
+    border-radius: 16px;
+    background: var(--secondary, #fff);
+    color: var(--primary, #222);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  #ld-drawer-root .ld-shortcuts .ld-settings-close {
+    width: auto;
+  }
+
+  #ld-drawer-root .ld-shortcuts::backdrop {
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  #ld-drawer-root .ld-shortcuts h2 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  #ld-drawer-root .ld-shortcuts table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin: 14px 0;
+  }
+
+  #ld-drawer-root .ld-shortcuts th,
+  #ld-drawer-root .ld-shortcuts td {
+    padding: 8px 4px;
+    text-align: left;
+    overflow-wrap: anywhere;
+    border-bottom: 1px solid var(--primary-low, #ddd);
+  }
+
+  #ld-drawer-root .ld-shortcuts p {
+    margin: 8px 0 0;
   }
 
   #ld-drawer-root .ld-setting-field.is-disabled {
@@ -3322,6 +3354,45 @@
     background: rgba(255, 247, 237, 0.92);
   }
 
+  #ld-drawer-root .ld-cf-notice {
+    flex: none;
+    margin: 8px 12px;
+  }
+
+  @media (max-width: 720px) {
+    #ld-drawer-root .ld-cf-notice {
+      /* 避开窄屏左侧收藏悬浮入口，保持验证说明可见。 */
+      margin-top: 40px;
+    }
+  }
+
+  #ld-drawer-root .ld-cf-notice[hidden] {
+    display: none;
+  }
+
+  #ld-drawer-root .ld-cf-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  #ld-drawer-root .ld-cf-actions .ld-reply-action {
+    width: auto;
+    min-height: 36px;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: inherit;
+    text-decoration: none;
+  }
+
+  #ld-drawer-root .ld-cf-actions button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
   #ld-drawer-root .ld-iframe-fallback {
     display: flex;
     flex: 1;
@@ -3549,13 +3620,12 @@
       gap: 2px;
     }
 
-    #ld-drawer-root .ld-drawer-header-actions .ld-drawer-nav,
-    #ld-drawer-root .ld-drawer-header-actions .ld-drawer-reply-toggle {
+    #ld-drawer-root .ld-drawer-header-actions .ld-drawer-nav {
       display: none;
     }
 
     #ld-drawer-root .ld-drawer-header-actions .ld-drawer-nav,
-    #ld-drawer-root .ld-drawer-header-actions .ld-drawer-reply-toggle,
+    #ld-drawer-root .ld-drawer-header-actions .ld-drawer-shortcuts-toggle,
     #ld-drawer-root .ld-drawer-header-actions .ld-drawer-link,
     #ld-drawer-root .ld-drawer-header-actions .ld-drawer-close,
     #ld-drawer-root .ld-drawer-header-actions .ld-drawer-settings-toggle {
@@ -3767,7 +3837,10 @@
       replyPanelMain: null,
       drawerBody: null,
       content: null,
-      replyToggleButton: null,
+      shortcutsDialog: null,
+      shortcutsToggle: null,
+      previewHistory: [],
+      previewHistoryIndex: -1,
       replyFabButton: null,
       topFabButton: null,
       bottomFabButton: null,
@@ -3843,6 +3916,8 @@
       prefetchScanTimer: 0,
       prefetchNextAt: 0,
       prefetchPausedUntil: 0,
+      cfChallenge: false,
+      cfRetryController: null,
       previewPageHidden: false,
       reading: null,
       replyUploadControllers: [],
@@ -4119,8 +4194,8 @@
                   <button class="ld-drawer-settings-toggle" type="button" aria-expanded="false" aria-controls="ld-drawer-settings" data-tooltip="选项" aria-label="选项">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06-.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                   </button>
-                  <button class="ld-drawer-reply-toggle ld-drawer-reply-trigger" type="button" aria-expanded="false" aria-controls="ld-drawer-reply-panel" aria-label="回复当前主题" data-tooltip="回复当前主题" hidden>
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 12.5c0-4.14 3.36-7.5 7.5-7.5h7a1.5 1.5 0 0 1 0 3h-7A4.5 4.5 0 0 0 7 12.5v1.38l1.44-1.44a1.5 1.5 0 0 1 2.12 2.12l-4 4a1.5 1.5 0 0 1-2.12 0l-4-4a1.5 1.5 0 1 1 2.12-2.12L4 13.88V12.5Z"/></svg>
+                  <button class="ld-drawer-shortcuts-toggle" type="button" aria-expanded="false" aria-controls="ld-shortcuts" aria-label="查看快捷键" data-tooltip="快捷键">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h1m3 0h1m3 0h1m3 0h1M6 12h1m3 0h1m3 0h1m3 0h1M7 16h10"/></svg>
                   </button>
                   <a class="ld-drawer-link" href="https://linux.do/latest" target="_blank" rel="noopener noreferrer" data-tooltip="新标签打开" aria-label="新标签打开">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -4136,6 +4211,25 @@
               </div>
               <div class="ld-drawer-meta"></div>
             </div>
+            <dialog class="ld-shortcuts" id="ld-shortcuts" aria-labelledby="ld-shortcuts-title">
+              <div class="ld-settings-head">
+                <h2 id="ld-shortcuts-title">快捷键</h2>
+                <button class="ld-settings-close" type="button" autofocus>关闭</button>
+              </div>
+              <table>
+                <thead><tr><th scope="col">操作</th><th scope="col">Mac</th><th scope="col">Windows</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">跳转后退 / 前进</th><td>⌥ ← / →</td><td>Alt + ← / →</td></tr>
+                  <tr><th scope="row">列表上一帖 / 下一帖</th><td>⌥ ↑ / ↓</td><td>Alt + ↑ / ↓</td></tr>
+                  <tr><th scope="row">帖内搜索</th><td>⌘ F</td><td>Ctrl + F</td></tr>
+                  <tr><th scope="row">发送快速回复</th><td>⌘ Enter</td><td>Ctrl + Enter</td></tr>
+                  <tr><th scope="row">关闭当前浮层 / 抽屉</th><td>Esc</td><td>Esc</td></tr>
+                  <tr><th scope="row">轮播上一张 / 下一张</th><td>← / →</td><td>← / →</td></tr>
+                </tbody>
+              </table>
+              <p>⌥ 是 Option，⌘ 是 Command。跳转历史仅保留本次打开抽屉期间的记录；没有记录时不切换。</p>
+              <p>编辑文字时保留方向键操作；轮播快捷键在图片轮播获得焦点时生效。整页正文内支持历史左右键并沿用浏览器查找；列表上下切帖与 Esc 需聚焦抽屉外框。跨站验证页内不接管快捷键。</p>
+            </dialog>
             <div class="ld-drawer-settings" id="ld-drawer-settings" hidden>
               <div class="ld-drawer-settings-card" role="dialog" aria-modal="true" aria-label="预览选项">
                 <div class="ld-settings-head">
@@ -4150,7 +4244,7 @@
                     <option value="iframe">整页模式</option>
                   </select>
                 </label>
-                <label class="ld-setting-field" data-setting-group="postBodyFontSize">
+                <label class="ld-setting-field" data-setting-group="postBodyFontSize" data-smart-setting>
                   <div class="ld-setting-row">
                     <span class="ld-setting-label">正文字号</span>
                     <span class="ld-setting-value" data-setting-value="postBodyFontSize">15px</span>
@@ -4165,7 +4259,7 @@
                   />
                   <span class="ld-setting-hint" data-setting-hint="postBodyFontSize">只调整帖子正文和代码字号，不影响标题和按钮</span>
                 </label>
-                <label class="ld-setting-field">
+                <label class="ld-setting-field" data-smart-setting>
                   <span class="ld-setting-label">回复排序</span>
                   <select class="ld-setting-control" data-setting="replyOrder">
                     <option value="default">默认顺序</option>
@@ -4173,7 +4267,7 @@
                   </select>
                   <span class="ld-setting-hint">长帖下会优先显示最新一批回复，不代表把整帖一次性完整倒序</span>
                 </label>
-                <label class="ld-setting-field">
+                <label class="ld-setting-field" data-smart-setting>
                   <span class="ld-setting-label">回复展示</span>
                   <select class="ld-setting-control" data-setting="replyDisplay">
                     <option value="inline">树形对话（过滤子回复）</option>
@@ -4227,6 +4321,13 @@
               <div class="ld-topic-search-pages">
                 <button class="ld-reply-action" type="button" data-search-page="prev" hidden>上一页</button>
                 <button class="ld-reply-action" type="button" data-search-page="next" hidden>下一页</button>
+              </div>
+            </section>
+            <section class="ld-cf-notice ld-topic-note" aria-label="网站验证" hidden>
+              <div class="ld-cf-status" role="status"></div>
+              <div class="ld-cf-actions">
+                <a class="ld-reply-action" target="_blank" rel="noopener noreferrer">打开原帖验证</a>
+                <button class="ld-reply-action ld-reply-action-primary" type="button">验证后重试</button>
               </div>
             </section>
             <div class="ld-drawer-body">
@@ -4295,7 +4396,8 @@
       state.replyPanelMain = root.querySelector(".ld-drawer-main");
       state.drawerBody = root.querySelector(".ld-drawer-body");
       state.content = root.querySelector(".ld-drawer-content");
-      state.replyToggleButton = root.querySelector(".ld-drawer-reply-toggle");
+      state.shortcutsDialog = root.querySelector(".ld-shortcuts");
+      state.shortcutsToggle = root.querySelector(".ld-drawer-shortcuts-toggle");
       state.replyFabButton = root.querySelector(".ld-drawer-reply-fab.ld-drawer-reply-trigger");
       state.topFabButton = root.querySelector(".ld-drawer-back-top");
       state.bottomFabButton = root.querySelector(".ld-drawer-go-bottom");
@@ -4357,7 +4459,21 @@
           state.topicSearchQuery, state.topicSearchPage + (button.dataset.searchPage === "next" ? 1 : -1)
         ));
       });
-      state.replyToggleButton.addEventListener("click", toggleReplyPanel);
+      state.shortcutsToggle.addEventListener("click", () => {
+        setSettingsPanelOpen(false);
+        state.shortcutsDialog.showModal();
+        state.shortcutsToggle.setAttribute("aria-expanded", "true");
+      });
+      state.shortcutsDialog.querySelector("button").addEventListener("click", () => state.shortcutsDialog.close());
+      state.shortcutsDialog.addEventListener("click", (event) => {
+        if (event.target !== state.shortcutsDialog) return;
+        const rect = state.shortcutsDialog.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) state.shortcutsDialog.close();
+      });
+      state.shortcutsDialog.addEventListener("close", () => {
+        state.shortcutsToggle.setAttribute("aria-expanded", "false");
+        if (document.body.classList.contains(PAGE_OPEN_CLASS)) state.shortcutsToggle.focus({ preventScroll: true });
+      });
       state.replyFabButton.addEventListener("click", toggleReplyPanel);
       state.replyCancelButton.addEventListener("click", () => setReplyPanelOpen(false));
       state.replySubmitButton.addEventListener("click", handleReplySubmit);
@@ -4365,6 +4481,7 @@
       state.replyTextarea.addEventListener("keydown", handleReplyTextareaKeydown);
       state.replyTextarea.addEventListener("paste", handleReplyTextareaPaste);
       state.replyPanelHead.addEventListener("pointerdown", startReplyPanelDrag);
+      root.querySelector(".ld-cf-actions button").addEventListener("click", retryCfPreview);
       root.addEventListener("click", handleDrawerRootClick);
       root.addEventListener("wheel", handleDrawerRootWheel, { passive: false });
       imagePreviewRoot.addEventListener("click", handleImagePreviewClick);
@@ -4420,6 +4537,8 @@
       if (!(target instanceof Element)) {
         return;
       }
+
+      if (target.closest(`#${ROOT_ID} .ld-post-body`) && handlePreviewTopicClick(event)) return;
 
       if (target.closest("#ld-bookmarks, #ld-bookmarks-trigger, #ld-bookmark-picker, #ld-bookmark-confirm")) return;
       if (state.bookmarks.dialog?.open) {
@@ -4486,6 +4605,14 @@
     }
 
     function handleKeydown(event) {
+      if (state.shortcutsDialog?.open) {
+        if (handlePreviewHistoryKeydown(event)) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          state.shortcutsDialog.close();
+        }
+        return;
+      }
       if (state.bookmarks.confirmation) return;
       if (state.bookmarks.picker?.matches(":popover-open") && event.key === "Escape") {
         event.preventDefault();
@@ -4551,6 +4678,8 @@
         state.topicSearchInput.select();
         return;
       }
+
+      if (handlePreviewHistoryKeydown(event)) return;
 
       if (isTypingTarget(event.target)) {
         return;
@@ -4653,6 +4782,7 @@
       });
       window.addEventListener("pagehide", () => {
         state.previewPageHidden = true;
+        state.cfRetryController?.abort();
         clearTimeout(state.bookmarks.refreshTimer);
         clearTimeout(state.bookmarks.autoSyncTimer);
         state.bookmarks.refreshController?.abort();
@@ -4704,7 +4834,7 @@
 
     function runTopicPrefetch() {
       const now = Date.now();
-      if (document.hidden || state.previewPageHidden || state.settings.previewMode === "iframe" ||
+      if (state.cfChallenge || document.hidden || state.previewPageHidden || state.settings.previewMode === "iframe" ||
           state.abortController || state.loadMoreAbortController || state.prefetchRequests.size >= 2 ||
           now < state.prefetchNextAt || now < state.prefetchPausedUntil) return;
       pruneTopicCache();
@@ -4991,9 +5121,17 @@
       return true;
     }
 
-    function openDrawer(topicUrl, fallbackTitle, activeLink) {
+    function openDrawer(topicUrl, fallbackTitle, activeLink, fromHistory = false) {
+      if (!fromHistory && state.previewHistory[state.previewHistoryIndex]?.url !== topicUrl) {
+        state.previewHistory.splice(state.previewHistoryIndex + 1);
+        state.previewHistory.push({ url: topicUrl, title: fallbackTitle });
+        state.previewHistoryIndex = state.previewHistory.length - 1;
+      }
       closeBookmarkPicker();
       ensureDrawer();
+      state.cfRetryController?.abort();
+      state.cfRetryController = null;
+      syncCfChallengeNotice();
       cacheCurrentTopic();
 
       const entryElement = activeLink instanceof Element
@@ -5066,6 +5204,7 @@
       state.title.textContent = fallbackTitle || "加载中…";
       state.meta.textContent = cachedTopic ? "正在恢复上次预览…" : "正在载入帖子内容…";
       state.openInTab.href = topicUrl;
+      syncCfChallengeNotice();
 
       if (!cachedTopic) {
         state.content.innerHTML = renderLoading();
@@ -5106,6 +5245,11 @@
     }
 
     function closeDrawer() {
+      state.previewHistory = [];
+      state.previewHistoryIndex = -1;
+      state.shortcutsDialog?.close();
+      state.cfRetryController?.abort();
+      state.cfRetryController = null;
       closeBookmarkPicker();
       setTopicSearchOpen(false);
       stopReading();
@@ -5391,6 +5535,15 @@
         state.abortController = null;
       }
 
+      if (state.cfChallenge) {
+        syncCfChallengeNotice();
+        if (!state.currentTopic) {
+          state.content.replaceChildren();
+          state.meta.textContent = "预览已暂停，请完成网站验证。";
+        }
+        return;
+      }
+
       if (state.settings.previewMode === "iframe") {
         renderIframeFallback(topicUrl, fallbackTitle, null, true);
         syncLatestRepliesRefreshUI();
@@ -5484,7 +5637,7 @@
           return;
         }
 
-        renderIframeFallback(topicUrl, fallbackTitle, error);
+        if (!state.cfChallenge) renderIframeFallback(topicUrl, fallbackTitle, error);
       } finally {
         if (state.abortController === controller) {
           state.abortController = null;
@@ -6091,14 +6244,6 @@
       setReplyPanelOpen(true);
     }
 
-    function forEachReplyTriggerButton(callback) {
-      for (const button of [state.replyToggleButton, state.replyFabButton]) {
-        if (button instanceof HTMLButtonElement) {
-          callback(button);
-        }
-      }
-    }
-
     function setReplyPanelOpen(isOpen) {
       if (!state.replyPanel) {
         return;
@@ -6114,9 +6259,7 @@
 
       state.replyPanel.hidden = !isOpen;
       syncReplyUI();
-      forEachReplyTriggerButton((button) => {
-        button.setAttribute("aria-expanded", String(isOpen));
-      });
+      state.replyFabButton?.setAttribute("aria-expanded", String(isOpen));
 
       if (!isOpen) {
         clearReplyPanelPositionStyles();
@@ -6752,7 +6895,7 @@
     }
 
     async function loadMorePosts() {
-      if (!state.currentTopic || state.isLoadingMorePosts || !buildTopicViewModel(state.currentTopic, state.currentLatestRepliesTopic, state.currentTargetSpec).canAutoLoadMore) {
+      if (state.cfChallenge || !state.currentTopic || state.isLoadingMorePosts || !buildTopicViewModel(state.currentTopic, state.currentLatestRepliesTopic, state.currentTargetSpec).canAutoLoadMore) {
         return;
       }
 
@@ -6916,7 +7059,8 @@
         controls.hidden = slides.length < 2;
         grid.replaceChildren(...slides, controls);
         grid.addEventListener("keydown", (event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+              (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
             return;
           }
           event.preventDefault();
@@ -6925,6 +7069,42 @@
         });
         show(0);
       }
+    }
+
+    function handlePreviewTopicClick(event) {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return false;
+      const link = event.target?.closest?.("a[href]");
+      if (!link || link.hasAttribute("download")) return false;
+      // 正文主题普通点击统一留在抽屉，新标签仍可用 Cmd/Ctrl 点击。
+      let url;
+      try {
+        url = new URL(link.href, link.ownerDocument.baseURI);
+      } catch {
+        return false;
+      }
+      if (url.origin !== location.origin || !getTopicIdFromUrl(url.toString())) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      openDrawer(normalizeTopicUrl(url), link.textContent.trim(), null);
+      return true;
+    }
+
+    function handlePreviewHistoryKeydown(event) {
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing ||
+          (event.key !== "ArrowLeft" && event.key !== "ArrowRight") ||
+          !document.body.classList.contains(PAGE_OPEN_CLASS)) return false;
+      // iframe 元素属于另一个 window，不能用顶层的 instanceof 判断输入控件。
+      if (event.target?.isContentEditable || event.target?.closest?.("input, textarea, select, [contenteditable='true']")) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.shortcutsDialog?.open || !state.settingsPanel?.hidden || !state.replyPanel?.hidden || !state.imagePreview?.hidden) return true;
+      const index = state.previewHistoryIndex + (event.key === "ArrowLeft" ? -1 : 1);
+      const entry = state.previewHistory[index];
+      if (entry) {
+        state.previewHistoryIndex = index;
+        openDrawer(entry.url, entry.title, null, true);
+      }
+      return true;
     }
 
     function handleDrawerRootClick(event) {
@@ -7144,6 +7324,10 @@
     }
 
     function renderIframeFallback(topicUrl, fallbackTitle, error, forcedIframe = false) {
+      if (state.cfChallenge) {
+        syncCfChallengeNotice();
+        return;
+      }
       stopReading();
       setIframeModeEnabled(true);
       cancelLoadMoreRequest();
@@ -7179,6 +7363,17 @@
       iframe.src = topicUrl;
       iframe.loading = "lazy";
       iframe.referrerPolicy = "strict-origin-when-cross-origin";
+      iframe.addEventListener("load", () => {
+        if (!iframe.isConnected) return;
+        try {
+          const frameDocument = iframe.contentDocument;
+          if (!frameDocument || iframe.contentWindow.location.origin !== location.origin) return;
+          frameDocument.addEventListener("click", handlePreviewTopicClick, true);
+          frameDocument.addEventListener("keydown", handlePreviewHistoryKeydown, true);
+        } catch {
+          // 跨源验证页不可读取；返回同源页面后由 load 重新绑定。
+        }
+      });
 
       container.append(iframe);
       state.content.replaceChildren(container);
@@ -7292,7 +7487,7 @@
         url.searchParams.set("search_context[type]", "topic");
         url.searchParams.set("search_context[id]", String(topicId));
         url.searchParams.set("page", String(page));
-        const response = await fetch(url.toString(), { credentials: "include", signal: controller.signal });
+        const response = await fetchPreviewResponse(url.toString(), { credentials: "include", signal: controller.signal });
         if (!response.ok) throw new Error("Search failed");
         const data = await response.json();
         if (controller.signal.aborted) return;
@@ -7638,10 +7833,99 @@
       return url.toString();
     }
 
+    async function isCfChallengeResponse(response) {
+      if (response.headers.get("cf-mitigated")?.toLowerCase() === "challenge") return true;
+      if (![200, 403, 429, 503].includes(response.status) ||
+          !response.headers.get("content-type")?.includes("text/html")) return false;
+      const html = await response.clone().text();
+      // 同时要求挑战配置与脚本路径，避免把普通错误页或提及 Cloudflare 的正文误判为验证。
+      return /(?:window\.)?_cf_chl_opt\s*=/.test(html) && /\/cdn-cgi\/challenge-platform\//.test(html);
+    }
+
+    function syncCfChallengeNotice(message = "网站要求 Cloudflare 验证，已暂停预取和回复加载。请在原帖完成验证，再返回重试。") {
+      const notice = state.root?.querySelector(".ld-cf-notice");
+      if (!notice) return;
+      notice.hidden = !state.cfChallenge;
+      notice.querySelector(".ld-cf-status").textContent = message;
+      notice.querySelector("a").href = state.currentUrl || location.href;
+      notice.querySelector("button").disabled = Boolean(state.cfRetryController && !state.cfRetryController.signal.aborted);
+    }
+
+    function pausePreviewForCfChallenge() {
+      if (state.cfChallenge) return;
+      state.cfChallenge = true;
+      state.abortController?.abort();
+      state.abortController = null;
+      cancelLoadMoreRequest();
+      cancelDirectRepliesRequest();
+      state.topicSearchAbortController?.abort();
+      for (const request of state.prefetchRequests.values()) request.controller.abort();
+      state.isLoadingMorePosts = false;
+      state.isRefreshingLatestReplies = false;
+      if (state.content && !state.currentTopic) {
+        state.content.replaceChildren();
+        state.meta.textContent = "预览已暂停，请完成网站验证。";
+      }
+      syncCfChallengeNotice();
+      syncLatestRepliesRefreshUI();
+    }
+
+    async function fetchPreviewResponse(url, options) {
+      const isVerification = options.signal && options.signal === state.cfRetryController?.signal;
+      if (state.cfChallenge && !isVerification) throw new Error("请先完成网站验证");
+      const response = await fetch(url, options);
+      options.signal?.throwIfAborted();
+      const challenged = await isCfChallengeResponse(response);
+      options.signal?.throwIfAborted();
+      if (challenged) {
+        pausePreviewForCfChallenge();
+        throw new Error("网站验证尚未通过");
+      }
+      if (state.cfChallenge && !isVerification) throw new Error("请先完成网站验证");
+      return response;
+    }
+
+    async function retryCfPreview() {
+      if (!state.cfChallenge || state.cfRetryController || !state.currentUrl || state.previewPageHidden) return;
+      const controller = new AbortController();
+      const topicUrl = state.currentUrl;
+      state.cfRetryController = controller;
+      syncCfChallengeNotice("正在检查验证结果…");
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        // 先用不计访问的读取确认恢复，再恢复预览；不重放回复、收藏或其他写入。
+        const topic = await fetchTrackedTopicJson(topicUrl, controller.signal, state.currentTopicIdHint, {
+          canonical: true, trackVisit: false
+        });
+        if (controller.signal.aborted || state.currentUrl !== topicUrl) return;
+        if (topic?.id !== getTopicIdFromUrl(topicUrl, state.currentTopicIdHint) || !topic.post_stream?.posts?.length) {
+          throw new Error("预览数据不可用");
+        }
+        state.cfChallenge = false;
+        state.prefetchPausedUntil = Date.now() + 60000;
+        syncCfChallengeNotice();
+        state.root.querySelector(".ld-drawer-close").focus({ preventScroll: true });
+        await loadTopic(topicUrl, state.currentFallbackTitle, state.currentTopicIdHint, {
+          cachedTopic: { topic, fetchedAt: Date.now() }, preserveScrollTop: state.drawerBody.scrollTop
+        });
+      } catch {
+        if (state.cfRetryController === controller && state.currentUrl === topicUrl && !state.previewPageHidden) {
+          syncCfChallengeNotice("暂未恢复访问。请确认原帖已通过验证且有权访问，再重试；预览读取仍已暂停。");
+        }
+      } finally {
+        clearTimeout(timeout);
+        if (state.cfRetryController === controller) {
+          state.cfRetryController = null;
+          const button = state.root?.querySelector(".ld-cf-actions button");
+          if (button) button.disabled = false;
+        }
+      }
+    }
+
     async function fetchTrackedTopicJson(topicUrl, signal, topicIdHint = null, options = {}) {
       const { canonical = false, trackVisit = true, topLevel = false } = options;
       const topicId = topicIdHint || getTopicIdFromUrl(topicUrl);
-      const response = await fetch(toTopicJsonUrl(topicUrl, { canonical, trackVisit, topicIdHint, topLevel }), {
+      const response = await fetchPreviewResponse(toTopicJsonUrl(topicUrl, { canonical, trackVisit, topicIdHint, topLevel }), {
         credentials: "include",
         cache: "no-store",
         signal,
@@ -7684,7 +7968,7 @@
         const number = post.reply_to_post_number;
         let parent = topic.post_stream.posts.find((p) => p.post_number === number) || state.replyParentCache.get(number);
         if (!parent) {
-          const response = await fetch(`/posts/by_number/${topic.id}/${number}`, {
+          const response = await fetchPreviewResponse(`/posts/by_number/${topic.id}/${number}`, {
             credentials: "include", signal, headers: { Accept: "application/json" }
           });
           if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("无法读取回复上下文");
@@ -7734,7 +8018,7 @@
     }
 
     function trackCurrentTopicVisit() {
-      if (state.currentViewTracked ||
+      if (state.cfChallenge || state.currentViewTracked ||
           !state.currentTopic || state.currentTopic.__sidePeekIframeShell) return;
       ensureTrackedTopicVisit(state.currentUrl, state.currentTopicIdHint, state.abortController?.signal).catch(() => {});
     }
@@ -7759,7 +8043,7 @@
     }
 
     async function fetchTopicPostsBatch(topicUrl, postIds, signal, topicIdHint = null) {
-      const response = await fetch(toTopicPostsJsonUrl(topicUrl, postIds, topicIdHint), {
+      const response = await fetchPreviewResponse(toTopicPostsJsonUrl(topicUrl, postIds, topicIdHint), {
         credentials: "include",
         signal,
         headers: {
@@ -10522,7 +10806,7 @@
       bindInlineReplyExpansion(trigger, preview, async (signal) => {
         let parent = topic?.post_stream?.posts?.find((p) => p.post_number === number) || state.replyParentCache.get(number);
         if (!parent) {
-          const response = await fetch(`/posts/by_number/${topic.id}/${number}`, {
+          const response = await fetchPreviewResponse(`/posts/by_number/${topic.id}/${number}`, {
             credentials: "include", signal, headers: { Accept: "application/json" }
           });
           if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取被回复的帖子");
@@ -10619,6 +10903,7 @@
     }
 
     function loadVisibleInlineReplies() {
+      if (state.cfChallenge) return;
       for (const [region, entry] of state.inlineReplyObservers) {
         if (state.inlineReplyControllers.size >= 3) break;
         if (!entry.visible || !region.isConnected) continue;
@@ -10645,7 +10930,7 @@
         trigger.focus({ preventScroll: true });
       };
       const render = async (more = false) => {
-        if (controller && !controller.signal.aborted) return;
+        if (state.cfChallenge || (controller && !controller.signal.aborted)) return;
         controller = new AbortController();
         const current = controller;
         state.inlineReplyControllers.set(current, region);
@@ -10763,7 +11048,7 @@
         }
         if (!cached || (more && !cached.complete)) {
           const after = cached?.after || 1;
-          const response = await fetch(`/posts/${parentPost.id}/replies?after=${after}`, {
+          const response = await fetchPreviewResponse(`/posts/${parentPost.id}/replies?after=${after}`, {
             credentials: "include", signal, headers: { Accept: "application/json" }
           });
           if (!response.ok || !response.headers.get("content-type")?.includes("json")) throw new Error("暂时无法读取回复");
@@ -10950,12 +11235,6 @@
           || state.root.classList.contains(IFRAME_MODE_CLASS) || !state.replyPanel?.hidden;
       }
 
-      if (state.replyToggleButton) {
-        state.replyToggleButton.hidden = !hasCurrentUrl;
-        state.replyToggleButton.disabled = !hasTopic || state.isReplySubmitting;
-        state.replyToggleButton.classList.toggle("is-disabled", !hasTopic || state.isReplySubmitting);
-      }
-
       if (state.replyFabButton) {
         state.replyFabButton.hidden = !hasCurrentUrl
           || isSettingsOpen;
@@ -11010,6 +11289,9 @@
         }
       }
 
+      for (const field of state.settingsPanel.querySelectorAll("[data-smart-setting]")) {
+        field.hidden = state.settings.previewMode === "iframe";
+      }
       syncPostBodyFontSizeValue();
       syncPostBodyFontSizeControlState();
     }

@@ -146,21 +146,21 @@ drawer_state() {
   const root = document.getElementById("ld-drawer-root");
   const settingsButton = root?.querySelector(".ld-drawer-settings-toggle");
   const settingsPanel = root?.querySelector("#ld-drawer-settings");
-  const replyButton = root?.querySelector(".ld-drawer-reply-toggle");
+  const shortcutsButton = root?.querySelector(".ld-drawer-shortcuts-toggle");
   const link = root?.querySelector(".ld-drawer-link");
   return {
     pageUrl: location.href,
     pageOpen: document.body.classList.contains("ld-drawer-page-open"),
     overlay: document.body.classList.contains("ld-drawer-mode-overlay"),
     title: root?.querySelector(".ld-drawer-title")?.textContent?.trim() || null,
-    prevText: root?.querySelector("[data-nav=\"prev\"]")?.textContent?.trim() || null,
-    nextText: root?.querySelector("[data-nav=\"next\"]")?.textContent?.trim() || null,
-    settingsText: settingsButton?.textContent?.trim() || null,
+    prevText: root?.querySelector("[data-nav=\"prev\"]")?.getAttribute("aria-label") || null,
+    nextText: root?.querySelector("[data-nav=\"next\"]")?.getAttribute("aria-label") || null,
+    settingsText: settingsButton?.getAttribute("aria-label") || null,
     settingsExpanded: settingsButton?.getAttribute("aria-expanded") || null,
     settingsHidden: settingsPanel?.hasAttribute("hidden") ?? null,
-    replyText: replyButton?.textContent?.trim() || null,
-    replyHidden: replyButton?.hidden ?? null,
-    newTabText: link?.textContent?.trim() || null,
+    shortcutsExists: shortcutsButton instanceof HTMLButtonElement,
+    headerReplyExists: Boolean(root?.querySelector(".ld-drawer-reply-toggle")),
+    newTabText: link?.getAttribute("aria-label") || null,
     newTabHref: link?.getAttribute("href") || null,
     newTabTarget: link?.getAttribute("target") || null,
     newTabRel: link?.getAttribute("rel") || null
@@ -648,6 +648,7 @@ post_body_font_state() {
     bodyFontSize: body ? Math.round(parseFloat(getComputedStyle(body).fontSize) || 0) : null,
     codeExists: code instanceof HTMLElement,
     codeFontSize: code ? Math.round(parseFloat(getComputedStyle(code).fontSize) || 0) : null,
+    fieldHidden: field?.hidden ?? false,
     fieldDisabled: field?.classList.contains("is-disabled") || false,
     fieldAriaDisabled: field?.getAttribute("aria-disabled") || null,
     controlDisabled: control?.disabled || false,
@@ -665,9 +666,6 @@ click_reply_trigger() {
   local target=$1
   local selector_json script
   case "$target" in
-    header)
-      selector_json='"#ld-drawer-root .ld-drawer-reply-toggle"'
-      ;;
     fab)
       selector_json='"#ld-drawer-root .ld-drawer-reply-fab.ld-drawer-reply-trigger"'
       ;;
@@ -829,12 +827,12 @@ run_002() {
   if [ "$(echo "$state" | jq -r '.prevText // empty')" = "上一帖" ] \
     && [ "$(echo "$state" | jq -r '.nextText // empty')" = "下一帖" ] \
     && [ "$(echo "$state" | jq -r '.settingsText // empty')" = "选项" ] \
-    && [ "$(echo "$state" | jq -r '.replyText // empty')" = "回复主题" ] \
-    && [ "$(echo "$state" | jq -r '.replyHidden')" = "true" ] \
+    && [ "$(echo "$state" | jq -r '.shortcutsExists')" = "true" ] \
+    && [ "$(echo "$state" | jq -r '.headerReplyExists')" = "false" ] \
     && [ "$(echo "$state" | jq -r '.newTabText // empty')" = "新标签打开" ]; then
     record_pass "$case_id" "toolbar ready in iframe mode"
   else
-    record_fail "$case_id" "toolbar incomplete: $(echo "$state" | jq -c '{prevText, nextText, settingsText, replyText, replyHidden, newTabText}')"
+    record_fail "$case_id" "toolbar incomplete: $(echo "$state" | jq -c '{prevText, nextText, settingsText, shortcutsExists, headerReplyExists, newTabText}')"
   fi
 }
 
@@ -1245,7 +1243,8 @@ run_014() {
   close_reply_panel_if_open >/dev/null || true
   set_setting_value previewMode "$original_preview" >/dev/null || true
   ensure_settings_closed
-  if [ "$(echo "$on_state" | jq -r '.fabRendered')" = "true" ] \
+  if [ "$(echo "$on_state" | jq -r '.headerExists')" = "false" ] \
+    && [ "$(echo "$on_state" | jq -r '.fabRendered')" = "true" ] \
     && [ "$(echo "$settings_state" | jq -r '.fabHidden')" = "true" ] \
     && [ "$(echo "$click_result" | jq -r '.ok')" = "true" ] \
     && [ "$(echo "$panel_state" | jq -r '.panelHidden')" = "false" ] \
@@ -1372,7 +1371,7 @@ run_017() {
     && [ "$(echo "$state" | jq -r '.fieldDisabled')" = "true" ] \
     && [ "$(echo "$state" | jq -r '.fieldAriaDisabled // empty')" = "true" ] \
     && [ "$(echo "$state" | jq -r '.controlDisabled')" = "true" ] \
-    && echo "$state" | jq -e '.hintText | test("仅智能预览可用")' >/dev/null; then
+    && [ "$(echo "$state" | jq -r '.fieldHidden')" = "true" ]; then
     record_pass "$case_id" "state=$(echo "$state" | jq -c '{fieldDisabled, fieldAriaDisabled, controlDisabled, valueText, hintText}')"
   else
     record_fail "$case_id" "state=$(echo "$state" | jq -c '{pageOpen, fieldDisabled, fieldAriaDisabled, controlDisabled, controlValue, valueText, hintText}')"

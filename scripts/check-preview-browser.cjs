@@ -50,7 +50,7 @@ try {
     const style = document.createElement("style");
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic, REACTION_URL_CACHE };")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic, fetchPreviewResponse, runTopicPrefetch, loadVisibleInlineReplies, REACTION_URL_CACHE };")}
   })()`);
   run(["wait", "--fn", "window.previewTest.state.topicCache.size === 6"]);
   console.log(evaluate(`(() => {
@@ -877,6 +877,105 @@ try {
     } finally {
       window.fetch = previousFetch; window.open = previousOpen;
     }
+  })()`).trim());
+  console.log(evaluate(`(async () => {
+    const s = previewTest.state;
+    s.prefetchObserver.disconnect(); s.prefetchVisible.clear(); s.topicCache.clear();
+    window.testFocus = false;
+    window.cfFixture = { mode: 'challenge', requests: [], previousFetch: window.fetch };
+    window.fetch = async (input, options = {}) => {
+      const f = cfFixture;
+      f.requests.push({ url: String(input), method: options.method || 'GET', signal: options.signal });
+      if (options.method && options.method !== 'GET') throw Error('CF 恢复不应发送写入请求');
+      if (f.mode === 'delay') return new Promise(resolve => { f.resolve = resolve; });
+      if (f.mode === 'network') throw Error('固定网络失败');
+      if (f.mode === 'challenge') return new Response('验证', {status:403,headers:{'cf-mitigated':'challenge','content-type':'text/html'}});
+      if (f.mode === 'permission') return new Response('{"errors":["无权访问"]}', {status:403,headers:{'content-type':'application/json'}});
+      return new Response(JSON.stringify(f.topic), {headers:{'content-type':'application/json'}});
+    };
+    const entry = document.querySelector('#main-outlet a');
+    entry.href = '/t/test/4242'; entry.textContent = '网站验证恢复测试';
+    cfFixture.topic = {id:4242,title:'验证后的主题',posts_count:1,post_stream:{posts:[{id:424201,post_number:1,username:'test-user',cooked:'<p>验证成功后恢复的正文</p>',actions_summary:[]}],stream:[424201]}};
+    entry.click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const notice = s.root.querySelector('.ld-cf-notice');
+    if (!s.cfChallenge || notice.hidden || s.content.querySelector('iframe') || s.content.querySelector('.ld-loading-state')) throw Error('遇盾没有提示或仍在加载 iframe/骨架');
+    const link = notice.querySelector('a');
+    if(link.href !== 'https://linux.do/t/test/4242' || link.target !== '_blank' || link.rel !== 'noopener noreferrer') throw Error('验证外链错误');
+    const count = cfFixture.requests.length;
+    previewTest.runTopicPrefetch(); previewTest.loadVisibleInlineReplies();
+    await previewTest.fetchPreviewResponse('/posts/424201/replies', {}).catch(() => {});
+    if (cfFixture.requests.length !== count || s.root.querySelectorAll('.ld-cf-notice').length !== 1) throw Error('暂停后仍请求或提示重复');
+    cfFixture.mode = 'permission';
+    notice.querySelector('button').click(); notice.querySelector('button').click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (!s.cfChallenge || !notice.textContent.includes('暂未恢复访问') || cfFixture.requests.length !== count + 1) throw Error('失败恢复错误或重复点击未去重');
+    for (const mode of ['challenge', 'network']) {
+      cfFixture.mode = mode;
+      const before = cfFixture.requests.length;
+      notice.querySelector('button').click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (!s.cfChallenge || notice.querySelector('button').disabled || cfFixture.requests.length !== before + 1) throw Error('挑战/网络失败未保持暂停或无限重试');
+    }
+    const modeControl = s.root.querySelector('[data-setting="previewMode"]');
+    for (const mode of ['iframe', 'auto']) {
+      modeControl.value = mode; modeControl.dispatchEvent(new Event('change', {bubbles:true}));
+      if (s.content.querySelector('iframe')) throw Error('模式切换绕过验证暂停');
+    }
+    const style = document.createElement('style');
+    style.id = 'cf-form-interference';
+    style.textContent = ':where(.ld-cf-notice) button {width:600px}'; document.head.append(style);
+    return 'CF 挑战提示、停止额外读取、安全外链、失败保持暂停与点击去重：通过';
+  })()`).trim());
+  for (const [width, dark] of [[1280, false], [390, false], [320, true]]) {
+    run(['set', 'viewport', String(width), '800']);
+    evaluate(`(() => {
+      document.documentElement.style.cssText = ${JSON.stringify(dark ? '--primary:#ddd;--secondary:#222;--primary-low:#444;--primary-medium:#bbb;--tertiary:#8ab4f8;background:#222;color:#ddd' : '')};
+      const n = previewTest.state.root.querySelector('.ld-cf-notice'), box = n.getBoundingClientRect();
+      const range=document.createRange(); range.selectNodeContents(n.querySelector('.ld-cf-status'));
+      const text=range.getClientRects()[0];
+      if(!n.contains(document.elementFromPoint(text.left+2,text.top+2))) throw Error('验证说明被悬浮入口遮挡');
+      for(const b of n.querySelectorAll('a,button')) {
+        const r = b.getBoundingClientRect();
+        if(r.width <= 0 || r.left < box.left || r.right > box.right || r.top < 0 || r.bottom > 800) throw Error('验证操作不可见或受原站表单宽度干扰');
+      }
+    })()`);
+    if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(['screenshot', path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `cf-${width}${dark ? '-dark' : ''}.png`)]);
+  }
+  console.log(evaluate(`(async () => {
+    const s=previewTest.state, f=cfFixture, notice=s.root.querySelector('.ld-cf-notice');
+    const settle=()=>new Promise(resolve=>setTimeout(resolve,50));
+    document.querySelector('#cf-form-interference').remove(); document.documentElement.style.cssText='';
+    f.mode='ok'; notice.querySelector('button').click(); await settle();
+    if(s.cfChallenge || !notice.hidden || !s.content.textContent.includes('验证成功后恢复的正文')) throw Error('成功验证未恢复预览');
+    if(f.requests.some(r=>r.method!=='GET')) throw Error('验证重放了写入');
+    if(!f.requests.some(r=>!r.url.includes('track_visit'))) throw Error('缺少不计访问的验证读取');
+    const before=s.content.textContent;
+    f.mode='challenge';
+    await previewTest.fetchPreviewResponse('/posts/424201/replies', {}).catch(()=>{});
+    if(!s.cfChallenge || notice.hidden || s.content.textContent!==before) throw Error('子楼遇盾未提示或丢失已加载正文');
+    for (const action of ['switch', 'pagehide']) {
+      f.mode='delay'; notice.querySelector('button').click();
+      const resolve=f.resolve, pending=f.requests.at(-1);
+      if(action==='switch') document.querySelector('#main-outlet a[href="/t/test/2"]').click();
+      else window.dispatchEvent(new Event('pagehide'));
+      resolve(new Response(JSON.stringify(f.topic), {headers:{'content-type':'application/json'}})); await settle();
+      if(!pending.signal.aborted || !s.cfChallenge) throw Error('切帖/挂起后旧验证解除暂停');
+      if(action==='pagehide') window.dispatchEvent(new Event('pageshow'));
+      document.querySelector('#main-outlet a').click(); await settle();
+      if(notice.querySelector('button').disabled) throw Error('取消验证后按钮未恢复');
+    }
+    f.mode='delay'; notice.querySelector('button').click();
+    const stale=f.resolve, request=f.requests.at(-1);
+    document.querySelector('.ld-drawer-close').click();
+    stale(new Response(JSON.stringify(f.topic), {headers:{'content-type':'application/json'}})); await settle();
+    if(!request.signal.aborted || !s.cfChallenge || document.body.classList.contains('ld-drawer-page-open')) throw Error('关闭后旧验证响应恢复或重开抽屉');
+    document.querySelector('#main-outlet a').click(); await settle();
+    if(notice.hidden || notice.querySelector('button').disabled) throw Error('重开丢失暂停状态或不能重试');
+    f.mode='ok'; notice.querySelector('button').click(); await settle();
+    if(s.cfChallenge || !notice.hidden) throw Error('重开后无法恢复');
+    window.fetch=f.previousFetch; delete window.cfFixture;
+    return '恢复正文、仅 GET 探测、子楼遇盾保留内容、关闭期间旧响应与重开恢复：通过';
   })()`).trim());
   const errors = run(["errors"]).trim();
   assert.equal(errors, "", errors);
