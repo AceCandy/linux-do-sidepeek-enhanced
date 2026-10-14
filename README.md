@@ -25,19 +25,26 @@
 
 上表根据代码差异核实，不代表所有线上交互均已完成测试。自定义表情、实际回复/上传和 Firefox 完整交互仍需进一步回归；回复列表也不保证一次加载全部回复。[查看累计代码差异](https://github.com/AceCandy/linux-do-sidepeek-enhanced/compare/4bc7255bc5c53194fb7962981badf9ef857313b1...main)。
 
-## 下载与安装 · v1.4.1
+## 下载与安装 · v1.4.2
 
 油猴用户推荐从 [GreasyFork 安装二开版](https://greasyfork.org/zh-CN/scripts/595341)，由脚本管理器跟踪该发布页的更新。
 
 | 版本 | 直接下载 | 安装方式 |
 | --- | --- | --- |
-| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linux-do-sidepeek-1.4.1-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
-| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linux-do-sidepeek-1.4.1-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
-| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.1/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
+| Chrome / Edge 扩展 | [下载 ZIP](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.2/linux-do-sidepeek-1.4.2-chrome.zip) | 解压后在扩展管理页开启开发者模式，选择“加载已解压的扩展” |
+| Firefox 扩展（未签名） | [下载 XPI](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.2/linux-do-sidepeek-1.4.2-firefox-unsigned.xpi) | 在 `about:debugging#/runtime/this-firefox` 临时加载；不是商店签名安装包 |
+| 油猴脚本 | [下载 .user.js](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/download/v1.4.2/linuxdo-sidepeek.user.js) | 使用 Tampermonkey / ScriptCat 等脚本管理器安装或导入 |
 
-[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.4.1) · [更新日志](CHANGELOG.md)
+[完整发布说明与附件](https://github.com/AceCandy/linux-do-sidepeek-enhanced/releases/tag/v1.4.2) · [更新日志](CHANGELOG.md)
 
 扩展版和油猴版任选一种。安装本二开版前请停用其他 SidePeek 版本，避免重复拦截点击、生成两个抽屉。
+
+## 1.4.2 版本更新摘要
+
+- 修正顶层引用被误当成直接回复的问题，避免多层对话末尾残留多余的“加载更多回复”。
+- 摘要缺少父楼号时先补取完整楼层确认关系；失败保留已加载正文和重试位置。
+- 补充两层引用、八层定位路径及摘要补取重试回归，正常直接回复分页继续保留；扩展与油猴同步更新。
+- 固定页面及桌面／手机检查通过，真实主题仍受 Cloudflare 拦截，线上对应情况尚未确认。
 
 ## 1.4.1 版本更新摘要
 

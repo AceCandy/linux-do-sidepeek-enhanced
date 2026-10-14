@@ -31,6 +31,7 @@ try {
     window.replyFail = false;
     window.replyPending = false;
     window.replyPages = new Map();
+    window.replyFullPosts = new Map();
     window.makePost = (number, parent = null, count = 0) => ({
       id:100+number, topic_id:1, post_number:number, username:'user'+number, name:'用户 '+number,
       created_at:'2026-01-01T00:00:00Z', reply_to_post_number:parent, reply_to_user:parent ? {username:'user'+parent} : null,
@@ -58,7 +59,7 @@ try {
         if (url.pathname === '/posts/108/replies') return json([makePost(10,8)]);
         return json([]);
       }
-      if (url.pathname.endsWith('/posts.json')) return json({post_stream:{posts:url.searchParams.getAll('post_ids[]').map(id=>makePost(Number(id)-100,Number(id)===103?2:null,Number(id)===103?2:0))}});
+      if (url.pathname.endsWith('/posts.json')) return json({post_stream:{posts:url.searchParams.getAll('post_ids[]').map(id=>replyFullPosts.get(Number(id)) || makePost(Number(id)-100,Number(id)===103?2:null,Number(id)===103?2:0))}});
       if (url.pathname.startsWith('/t/test/2')) return json({id:2,title:'另一个主题',posts_count:1,post_stream:{posts:[{...makePost(1),topic_id:2}],stream:[101]}});
       if (request.topLevel === 'true') return json({...replyTopic,post_stream:{posts:[makePost(2,1,3),makePost(9,null,1)],stream:[102,109,111]}});
       return json(replyTopic);
@@ -264,13 +265,16 @@ try {
     const originalPosts=s.currentTopic.post_stream.posts;
     const originalPath=s.currentTopic.__sidePeekThreadTargetPath;
     const chain=Array.from({length:8},(_,i)=>makePost(21+i,20+i,i===7?0:1));
+    chain[0].reply_count=2;
     s.currentTopic.post_stream.posts=[...originalPosts,...chain];
     s.currentTopic.__sidePeekThreadTargetPath=[20,...chain.map(p=>p.post_number)];
     for(const post of chain) replyPages.set('/posts/'+(100+post.reply_to_post_number)+'/replies:1',[post]);
-    const chainRegion=await mount(1);
+    replyPages.get('/posts/120/replies:1').push(makePost(29,null));
+    replyPages.get('/posts/121/replies:1').push(makePost(30,null));
+    const chainRegion=await mount(2);
     for(const post of chain) await bringTree(post.post_number);
     check(chainRegion.querySelectorAll('.ld-inline-post').length===8,'目标路径没有展开完整对话');
-    check(!chainRegion.querySelector('.ld-inline-more'),'唯一子回复已在定位路径中却堆积空分页按钮');
+    check(!chainRegion.querySelector('.ld-inline-more'),'两层引用的顶层回复被当成新直接回复，出现 '+chainRegion.querySelectorAll('.ld-inline-more').length+' 个空分页按钮');
     window.replyChainRegion=chainRegion;s.currentTopic.post_stream.posts=originalPosts;s.currentTopic.__sidePeekThreadTargetPath=originalPath;
     for(let n=20;n<=28;n++) s.directReplyCache.delete(n);
     replyPages.clear();
@@ -279,6 +283,23 @@ try {
     check(region.querySelectorAll(':scope > .ld-inline-post').length===1,'引用回复混入直接子树');
     check(!region.querySelector('.ld-inline-more'),'接口已返回全部关联回复却仍显示加载更多');
     region.remove();
+    const partial=post=>Object.fromEntries(Object.entries(post).filter(([key])=>!['reply_to_post_number','can_boost','boosts'].includes(key)));
+    replyFullPosts.set(121,makePost(21,20));replyFullPosts.set(122,makePost(22,null));
+    replyPages.set('/posts/120/replies:1',[partial(makePost(21,20)),partial(makePost(22,null))]);
+    region=await mount(2);
+    check(region.querySelectorAll(':scope > .ld-inline-post').length===1 && region.querySelector('[data-thread-post-number="21"]'),'摘要缺父楼号时丢失直接回复或混入顶层引用');
+    check(!region.querySelector('.ld-inline-more'),'未确认摘要的真实回复关系便显示分页');
+    region.remove();
+    replyPages.set('/posts/120/replies:1',[makePost(21,20)]);
+    replyPages.set('/posts/120/replies:21',[partial(makePost(22,null))]);
+    replyFullPosts.set(122,partial(makePost(22,null)));
+    region=await mount(2);
+    check(region.querySelector('[data-thread-post-number="21"]') && region.textContent.includes('重试加载回复'),'无法确认关系时未保留正文和重试入口');
+    check(s.directReplyCache.get(20).after===21,'补取关系失败却提前推进游标');
+    replyFullPosts.set(122,makePost(22,null));
+    region.querySelector('.ld-inline-more').click();await settle();
+    check(region.querySelectorAll(':scope > .ld-inline-post').length===1 && !region.querySelector('.ld-inline-more'),'补取关系重试未排除顶层引用');
+    region.remove();replyFullPosts.clear();
     replyPages.set('/posts/120/replies:1',[makePost(21,20)]);
     replyPages.set('/posts/120/replies:21',[makePost(21,20),makePost(22,19)]);
     replyPages.set('/posts/120/replies:22',[makePost(23,20),makePost(24,19)]);
@@ -306,7 +327,7 @@ try {
     Array.from(region.querySelectorAll('button')).find(b=>b.textContent==='重试加载回复').click();await settle();
     check(region.querySelectorAll(':scope > .ld-inline-post').length===2 && !region.querySelector('.ld-inline-more'),'过滤页失败重试未续传完成');
     region.remove();replyPages.clear();s.directReplyCache.delete(20);
-    return '八层定位路径无空按钮、确认下一页、预读不渲染、过滤页/空页终止与失败续传：通过';
+    return '八层定位路径/两层顶层引用无空按钮、摘要父楼补取、确认下一页、预读不渲染、过滤页/空页终止与失败续传：通过';
   })()`).trim());
   if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
     for (const width of [1280,390]) {

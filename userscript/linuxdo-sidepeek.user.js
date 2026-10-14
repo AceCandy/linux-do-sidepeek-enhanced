@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.4.1
+// @version      1.4.2
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -10931,8 +10931,20 @@
             if (!Array.isArray(data)) throw new Error("回复数据不可用");
             const replies = data.filter((p) => p && Number.isSafeInteger(p.post_number) && p.post_number > number &&
               Number.isSafeInteger(p.id) && (!p.topic_id || p.topic_id === topic.id));
+            const missingParents = replies.filter((post) => post.reply_to_post_number === undefined);
+            if (missingParents.length) {
+              const fullPosts = await fetchTopicPostsBatch(state.currentUrl, missingParents.map((post) => post.id), signal, topic.id);
+              if (signal.aborted || state.currentTopic?.id !== topic.id) return [];
+              for (const post of missingParents) {
+                const full = fullPosts.find((item) => item?.id === post.id && item.post_number === post.post_number
+                  && typeof item.cooked === "string" && (!item.topic_id || item.topic_id === topic.id)
+                  && item.reply_to_post_number !== undefined);
+                if (!full) throw new Error("回复关系不可用");
+                Object.assign(post, full);
+              }
+            }
             const posts = replies.filter((p) => typeof p.cooked === "string" &&
-              (!p.reply_to_post_number || p.reply_to_post_number === number));
+              p.reply_to_post_number === number);
             const merged = new Map(cached.posts.map((p) => [p.post_number, p]));
             const pending = new Map();
             for (const post of posts) {
