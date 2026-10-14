@@ -2442,7 +2442,10 @@
     }
     if (isThreadMode() && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
       requestAnimationFrame(() => {
-        if (article.isConnected) article.scrollIntoView({ block: "center", behavior: "auto" });
+        if (article.isConnected && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
+          state.threadTargetNeedsScroll = false;
+          article.scrollIntoView({ block: "center", behavior: "auto" });
+        }
       });
     }
     return article;
@@ -7322,7 +7325,8 @@
           const receivedNumbers = new Set(cached?.receivedNumbers || (cached?.posts || []).map((p) => p.post_number));
           for (const post of replies) receivedNumbers.add(post.post_number);
           const next = Math.max(after, ...replies.map((p) => p.post_number));
-          const showPage = !cached.posts.length || needsNextPage;
+          // 定位路径预填的子楼不代表首页已加载，首页仍应完整合并展示。
+          const showPage = after === 1 || !cached.posts.length || needsNextPage;
           if (showPage) {
             for (const [postNumber, post] of pending) merged.set(postNumber, post);
             if (pending.size) needsNextPage = false;

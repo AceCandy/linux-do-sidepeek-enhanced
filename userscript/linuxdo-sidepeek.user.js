@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.4.2
+// @version      1.4.3
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -6085,7 +6085,10 @@
       }
       if (isThreadMode() && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
         requestAnimationFrame(() => {
-          if (article.isConnected) article.scrollIntoView({ block: "center", behavior: "auto" });
+          if (article.isConnected && state.threadTargetNeedsScroll && post.post_number === state.currentResolvedTargetPostNumber) {
+            state.threadTargetNeedsScroll = false;
+            article.scrollIntoView({ block: "center", behavior: "auto" });
+          }
         });
       }
       return article;
@@ -10955,7 +10958,8 @@
             const receivedNumbers = new Set(cached?.receivedNumbers || (cached?.posts || []).map((p) => p.post_number));
             for (const post of replies) receivedNumbers.add(post.post_number);
             const next = Math.max(after, ...replies.map((p) => p.post_number));
-            const showPage = !cached.posts.length || needsNextPage;
+            // 定位路径预填的子楼不代表首页已加载，首页仍应完整合并展示。
+            const showPage = after === 1 || !cached.posts.length || needsNextPage;
             if (showPage) {
               for (const [postNumber, post] of pending) merged.set(postNumber, post);
               if (pending.size) needsNextPage = false;

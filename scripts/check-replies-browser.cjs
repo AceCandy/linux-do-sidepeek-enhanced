@@ -68,10 +68,14 @@ try {
     ${source.replace(/^  init\(\);$/m, "  init(); globalThis.replyTest = { state, getVisibleReadingPosts, appendLoadedPostsIncrementally, tickReading, flushReading, loadSettings, resetSettings, navigateToPost, loadTopic, buildTopicViewModel, appendCreatedReplyToCurrentTopic, refreshCurrentView, loadVisibleInlineReplies, buildPostReplyStatWrap }; ")}
     window.check = (value,message) => {if (!value) throw Error(message);};
     window.settle = async () => {
-      await new Promise(r=>setTimeout(r,60));
-      for (let i=0;(replyTest.state.inlineReplyControllers.size || replyTest.state.abortController || replyTest.state.isLoadingMorePosts) && i<300;i++) await new Promise(r=>setTimeout(r,10));
-      await new Promise(r=>setTimeout(r,60));
-      check(!replyTest.state.inlineReplyControllers.size && !replyTest.state.abortController, '请求未结束');
+      let idle=0;
+      for(let i=0;i<300;i++) {
+        await new Promise(r=>setTimeout(r,10));
+        const s=replyTest.state;
+        idle=s.inlineReplyControllers.size || s.abortController || s.isLoadingMorePosts ? 0 : idle+1;
+        if(idle>=12) return;
+      }
+      check(false,'请求未结束');
     };
     window.bringTree = async number => {
       const node=replyTest.state.content.querySelector('[data-thread-post-number="'+number+'"]');
@@ -151,8 +155,19 @@ try {
     check(s.content.querySelectorAll('[data-thread-post-number="5"]').length===1,'目标重复或没有展开');
     check(s.content.querySelector('[data-thread-post-number="2"] [data-thread-post-number="3"] [data-thread-post-number="5"]'),'目标不在祖先树中');
     check(!s.content.querySelector('.ld-post-card[data-post-number="5"]'),'定位临时插入重复主楼');const parentRegion=s.content.querySelector('[data-thread-post-number="3"] > .ld-inline-thread');
-    parentRegion.querySelector('.ld-inline-more').click();await settle();
-    check(s.content.querySelectorAll('[data-thread-post-number="5"]').length===1,'目标路径补分页后重复');
+    check(parentRegion.querySelectorAll(':scope > .ld-inline-post').length===2 && !parentRegion.querySelector('.ld-inline-more'),'定位路径把同一首页的正常兄弟回复藏到加载更多中');
+    check(s.content.querySelectorAll('[data-thread-post-number="5"]').length===1,'目标路径首页合并后重复');
+    const targetBounds=s.content.querySelector('[data-thread-post-number="5"]').getBoundingClientRect();
+    const drawerBounds=s.drawerBody.getBoundingClientRect();
+    check(targetBounds.bottom>drawerBounds.top && targetBounds.top<drawerBounds.bottom,'初次深链接未滚动到目标楼');
+    const rootRegion=s.content.querySelector('[data-thread-post-number="2"] > .ld-inline-thread');
+    const more=rootRegion.querySelector(':scope > .ld-inline-more');check(more,'真实后续分页入口丢失');
+    more.scrollIntoView({block:'center'});await settle();
+    const originalScroll=Element.prototype.scrollIntoView;let targetScrolls=0;
+    Element.prototype.scrollIntoView=function(options){if(this.dataset.threadPostNumber==='5') targetScrolls++;return originalScroll.call(this,options);};
+    try {more.click();await settle();} finally {Element.prototype.scrollIntoView=originalScroll;}
+    check(rootRegion.querySelector('[data-thread-post-number="6"]'),'真实分页未增加回复');
+    check(targetScrolls===0,'分页重绘再次滚回旧定位楼，掩盖了新增回复');
     const ownerTopic={...s.currentTopic,created_by:{username:'user5'}};
     const original=s.currentTopic.created_by;s.currentTopic.created_by=ownerTopic.created_by;
     s.authorFilterButton.click();await settle();
@@ -204,7 +219,7 @@ try {
     s.authorFilterButton.click();await settle();document.querySelector('#main-outlet a[href="/t/test/2"]').click();await settle();
     check(s.authorFilter==='all' && s.currentTopic.id===2,'新主题不是默认全部作者');
     document.querySelector('#main-outlet a[href="/t/test/1"]').click();await settle();
-    return '深链接祖先补取/展开、路径分页去重、普通模式/设置切换及发送后子树显示：通过';
+    return '深链接祖先/首页兄弟完整展示、仅初次自动定位、真实分页不回跳、普通模式/设置切换及发送后子树显示：通过';
   })()`).trim());
   evaluate(`replyTest.state.currentUrl='https://linux.do/t/test/1';replyTest.state.currentResolvedTargetPostNumber=null;replyTest.state.topicCache.clear();replyTest.state.directReplyCache.clear();`);
   console.log(evaluate(`(async () => {await replyTest.loadTopic('https://linux.do/t/test/1','测试',1);await settle();const s=replyTest.state;
@@ -265,16 +280,16 @@ try {
     const originalPosts=s.currentTopic.post_stream.posts;
     const originalPath=s.currentTopic.__sidePeekThreadTargetPath;
     const chain=Array.from({length:8},(_,i)=>makePost(21+i,20+i,i===7?0:1));
-    chain[0].reply_count=2;
+    chain[0].reply_count=3;
     s.currentTopic.post_stream.posts=[...originalPosts,...chain];
     s.currentTopic.__sidePeekThreadTargetPath=[20,...chain.map(p=>p.post_number)];
     for(const post of chain) replyPages.set('/posts/'+(100+post.reply_to_post_number)+'/replies:1',[post]);
-    replyPages.get('/posts/120/replies:1').push(makePost(29,null));
-    replyPages.get('/posts/121/replies:1').push(makePost(30,null));
-    const chainRegion=await mount(2);
+    replyPages.get('/posts/120/replies:1').push(makePost(29,null),makePost(31,20));
+    replyPages.get('/posts/121/replies:1').push(makePost(30,null),makePost(32,21));
+    const chainRegion=await mount(3);
     for(const post of chain) await bringTree(post.post_number);
-    check(chainRegion.querySelectorAll('.ld-inline-post').length===8,'目标路径没有展开完整对话');
-    check(!chainRegion.querySelector('.ld-inline-more'),'两层引用的顶层回复被当成新直接回复，出现 '+chainRegion.querySelectorAll('.ld-inline-more').length+' 个空分页按钮');
+    check(chainRegion.querySelectorAll('.ld-inline-post').length===10 && chainRegion.querySelector('[data-thread-post-number="31"]') && chainRegion.querySelector('[data-thread-post-number="32"]'),'目标路径或两层首页的正常兄弟回复没有完整展示');
+    check(!chainRegion.querySelector('.ld-inline-more'),'两层首页的兄弟回复或顶层引用产生了 '+chainRegion.querySelectorAll('.ld-inline-more').length+' 个多余分页按钮');
     window.replyChainRegion=chainRegion;s.currentTopic.post_stream.posts=originalPosts;s.currentTopic.__sidePeekThreadTargetPath=originalPath;
     for(let n=20;n<=28;n++) s.directReplyCache.delete(n);
     replyPages.clear();
