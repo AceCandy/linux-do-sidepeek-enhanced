@@ -5,6 +5,21 @@
   const mounted = new Map();
   let observer = null;
 
+  document.addEventListener("ld-sync-iframe-sidebar", (event) => {
+    const frame = event.target;
+    if (!(frame instanceof HTMLIFrameElement) || !frame.matches("#ld-drawer-root .ld-topic-iframe")) return;
+    const value = frame.getAttribute("data-ld-show-sidebar");
+    if (value !== "on" && value !== "off") return;
+    try {
+      const frameWindow = pageWindow.document.querySelector("#ld-drawer-root .ld-topic-iframe")?.contentWindow;
+      if (!frameWindow || frameWindow.location.origin !== pageWindow.location.origin) return;
+      const load = frameWindow.require;
+      const controller = load("discourse/lib/get-owner").getOwnerWithFallback().lookup("controller:application");
+      // 只改内页状态；原站 toggleSidebar 会写入共享的折叠偏好。
+      load("@ember/runloop").run(() => controller.set("showSidebar", value === "on"));
+    } catch {}
+  });
+
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element
       ? event.target.closest("#ld-drawer-root a[data-user-card]")

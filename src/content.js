@@ -3640,6 +3640,11 @@
       frameDocument.head.append(style);
     }
     style.disabled = state.settings.showIframeSidebar === "on";
+    const frame = state.content?.querySelector(".ld-topic-iframe");
+    if (frame?.contentDocument === frameDocument) {
+      frame.setAttribute("data-ld-show-sidebar", state.settings.showIframeSidebar);
+      frame.dispatchEvent(new Event("ld-sync-iframe-sidebar", { bubbles: true }));
+    }
   }
 
   function buildIframeReplyTopic(topicUrl, fallbackTitle) {

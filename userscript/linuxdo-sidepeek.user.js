@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.4.6
+// @version      1.4.7
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -26,6 +26,21 @@
   const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   const mounted = new Map();
   let observer = null;
+
+  document.addEventListener("ld-sync-iframe-sidebar", (event) => {
+    const frame = event.target;
+    if (!(frame instanceof HTMLIFrameElement) || !frame.matches("#ld-drawer-root .ld-topic-iframe")) return;
+    const value = frame.getAttribute("data-ld-show-sidebar");
+    if (value !== "on" && value !== "off") return;
+    try {
+      const frameWindow = pageWindow.document.querySelector("#ld-drawer-root .ld-topic-iframe")?.contentWindow;
+      if (!frameWindow || frameWindow.location.origin !== pageWindow.location.origin) return;
+      const load = frameWindow.require;
+      const controller = load("discourse/lib/get-owner").getOwnerWithFallback().lookup("controller:application");
+      // 只改内页状态；原站 toggleSidebar 会写入共享的折叠偏好。
+      load("@ember/runloop").run(() => controller.set("showSidebar", value === "on"));
+    } catch {}
+  });
 
   document.addEventListener("click", (event) => {
     const target = event.target instanceof Element
@@ -7288,6 +7303,11 @@
         frameDocument.head.append(style);
       }
       style.disabled = state.settings.showIframeSidebar === "on";
+      const frame = state.content?.querySelector(".ld-topic-iframe");
+      if (frame?.contentDocument === frameDocument) {
+        frame.setAttribute("data-ld-show-sidebar", state.settings.showIframeSidebar);
+        frame.dispatchEvent(new Event("ld-sync-iframe-sidebar", { bubbles: true }));
+      }
     }
 
     function buildIframeReplyTopic(topicUrl, fallbackTitle) {

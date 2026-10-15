@@ -15,13 +15,15 @@ const clickTopic = () => {
   run(["click", "#next-topic"]);
 };
 const source = fs.readFileSync(path.join(__dirname, "../src/content.js"), "utf8");
+const nativeSource = fs.readFileSync(path.join(__dirname, "../src/native-renderer.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "../src/content.css"), "utf8");
 const html = '<!doctype html><meta charset="utf-8"><title>抽屉导航固定页</title><main id="main-outlet">' +
   '<div class="topic-list-item"><a class="title" href="/t/nav/101">主题 101</a></div></main>';
 const frameHtml = '<!doctype html><meta charset="utf-8"><title>整页主题</title>' +
   '<style>#main-outlet-wrapper{display:grid;grid-template-areas:"sidebar content" "sidebar below-content";grid-template-columns:220px minmax(0,1fr);column-gap:24px}.sidebar-wrapper{grid-area:sidebar}#main-outlet{grid-area:content}</style>' +
-  '<div class="d-header-wrap"><header class="d-header">LINUX DO 内嵌导航</header></div><div id="main-outlet-wrapper"><aside class="sidebar-wrapper">话题、分类、标签</aside><main id="main-outlet"><h1>整页主题正文标题</h1><p>主题正文</p>' +
-  '<a id="frame-next" href="/t/nav/102">整页内主题 102</a><input aria-label="整页输入" id="frame-input"></main></div>';
+  '<div class="d-header-wrap"><header class="d-header">LINUX DO 内嵌导航</header></div><div id="main-outlet-wrapper"><aside class="sidebar-wrapper"></aside><main id="main-outlet"><h1>整页主题正文标题</h1><p>主题正文</p>' +
+  '<a id="frame-next" href="/t/nav/102">整页内主题 102</a><input aria-label="整页输入" id="frame-input"></main></div>' +
+  '<script>window.sidebarController={showSidebar:false,set(key,value){this[key]=value;document.querySelector(".sidebar-wrapper").textContent=value?"话题、分类、标签":"";}};window.require=name=>name==="@ember/runloop"?{run:fn=>fn()}:{getOwnerWithFallback:()=>({lookup:()=>sidebarController})};</script>';
 
 try {
   run(["open", "about:blank"]);
@@ -30,6 +32,7 @@ try {
   run(["open", "https://linux.do/latest"]);
   evaluate(`(() => {
     localStorage.clear();
+    localStorage.setItem("sidebar-hidden", "true");
     window.GM_xmlhttpRequest = options => options.onerror();
     window.fixtureClicks=[]; document.addEventListener("click",e=>fixtureClicks.push({tag:e.target.tagName,id:e.target.id,className:e.target.className,alt:e.altKey}),true);
     window.fetch = async input => {
@@ -41,6 +44,7 @@ try {
       }]}}),{headers:{'content-type':'application/json'}});
     };
     const style=document.createElement('style'); style.textContent=${JSON.stringify(css)} + ':where(.ld-shortcuts) button {width:600px}'; document.head.append(style);
+    ${nativeSource}
     ${source.replace(/^  init\(\);$/m, "  init(); globalThis.navTest = { state, openDrawer, closeDrawer, handlePreviewTopicClick, loadSettings };")}
   })()`);
   run(["click", "#main-outlet a"]);
@@ -158,12 +162,19 @@ try {
       console.log(evaluate(`(() => {
         if(document.querySelector('.ld-topic-iframe')!==sidebarFrame || sidebarFrame.contentDocument!==sidebarDoc) throw Error('切换边栏重载了内页');
         const hidden=sidebarFrame.contentWindow.getComputedStyle(sidebarDoc.querySelector('.sidebar-wrapper')).display==='none';
+        if(localStorage.getItem('sidebar-hidden')!=='true') throw Error('改写原站侧栏偏好');
+        if(sidebarFrame.contentWindow.sidebarController.showSidebar!==${value === "on"} || Boolean(sidebarDoc.querySelector('.sidebar-wrapper').textContent)!==${value === "on"}) throw Error('原站折叠后未重新渲染边栏');
         if(hidden!==${value === "off"} || navTest.loadSettings().showIframeSidebar!==${JSON.stringify(value)}) throw Error('边栏切换或持久化失败');
         const offset=sidebarDoc.querySelector('#main-outlet').getBoundingClientRect().left-sidebarDoc.querySelector('#main-outlet-wrapper').getBoundingClientRect().left;
         if(Math.abs(offset-${value === "on" ? 244 : 0})>1) throw Error('边栏布局恢复失败');
         return '边栏 ${value} 即时生效、保留文档和持久化：通过';
       })()`).trim());
     }
+    run(["select", '[data-setting="showIframeSidebar"]', "on"]);
+    run(["click", ".ld-drawer-settings .ld-settings-close"]);
+    if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `sidebar-expanded-${width}.png`)]);
+    run(["click", ".ld-drawer-settings-toggle"]);
+    run(["select", '[data-setting="showIframeSidebar"]', "off"]);
     run(["click", ".ld-drawer-settings .ld-settings-close"]);
   }
   console.log(evaluate(`(() => {
