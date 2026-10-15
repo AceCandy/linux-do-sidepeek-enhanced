@@ -104,10 +104,19 @@ try {
       s.topicSearchButton.click();
       const panel = s.topicSearchPanel.getBoundingClientRect();
       if (s.topicSearchPanel.hidden || document.activeElement !== s.topicSearchInput || panel.left < root.left || panel.right > root.right || s.topicSearchPanel.scrollWidth > panel.width) throw Error('帖内搜索未聚焦或窄屏溢出');
+      if (s.topicSearchInput.placeholder !== '搜索当前话题内容') throw Error('帖内搜索提示文案不正确');
       document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true, cancelable:true}));
       if (!s.topicSearchPanel.hidden || !document.body.classList.contains('ld-drawer-page-open') || document.activeElement !== s.topicSearchButton) throw Error('Esc 未关闭搜索并恢复焦点');
       return '底部工具栏位置、回顶及回复开关：通过（${width}px）';
     })()`).trim());
+  }
+  if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
+    evaluate('previewTest.state.topicSearchButton.click()');
+    for (const width of [1280, 390]) {
+      run(['set', 'viewport', String(width), '800']);
+      run(['screenshot', path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `topic-search-${width}.png`)]);
+    }
+    evaluate('previewTest.state.topicSearchPanel.querySelector(".ld-topic-search-close").click()');
   }
   run(['set','viewport','1280','720']);
   run(["wait", "--fn", "window.requests.some(r => r.method === 'POST')"]);
@@ -759,13 +768,25 @@ try {
       if (!predicate()) throw Error('帖内搜索检查等待超时');
     };
     let results = {posts:[
-      {topic_id:1, post_number:2, username:'用户', blurb:'<b>匹配</b><img src="x" onerror="window.searchUnsafe=true">'},
-      {topic_id:1, post_number:99, username:'用户', blurb:'尚未加载的回复'},
+      {id:102, topic_id:1, post_number:2, username:'用户', blurb:'<b>匹配</b><img src="x" onerror="window.searchUnsafe=true">'},
+      {id:199, topic_id:1, post_number:99, username:'用户', blurb:'尚未加载的回复'},
       {topic_id:2, post_number:3, blurb:'其他主题'}, {topic_id:1, post_number:-1}
     ], grouped_search_result:{more_full_page_results:true}};
-    let failure = false, delayed = false;
+    let failure = false, delayed = false, bodyMode = "";
+    const bodyRequests = [];
     window.fetch = async (input, options = {}) => {
       const url = new URL(input, location.href);
+      if (url.pathname === '/t/1/posts.json') {
+        const request={options};bodyRequests.push(request);
+        if(bodyMode==='delay') return new Promise(resolve=>{request.resolve=resolve;});
+        if(bodyMode==='failure') return new Response('{}',{status:503,headers:{'content-type':'application/json'}});
+        if(bodyMode==='missing') return new Response('{"post_stream":{"posts":[]}}',{headers:{'content-type':'application/json'}});
+        const ids=url.searchParams.getAll('post_ids[]').map(Number);
+        if (ids.length>20 || options.credentials!=='include' || !options.signal) throw Error('正文核对未分批或缺少凭据/取消信号');
+        const posts=results.posts.filter(post=>ids.includes(post.id)).map(post=>({...post,
+          cooked:post.cooked ?? '<p>匹配 &amp; 测试 a+b TEST 大量结果 '+post.blurb+'</p>'}));
+        return new Response(JSON.stringify({post_stream:{posts}}),{headers:{'content-type':'application/json'}});
+      }
       if (url.pathname !== '/search.json') {
         const id = Number(url.pathname.match(/\\/(?:test|topic)\\/(\\d+)/)?.[1]);
         if (!id) return previousFetch(input, options);
@@ -779,6 +800,7 @@ try {
       if (delayed) return new Promise(resolve => { request.resolve = resolve; });
       return new Response(JSON.stringify(results), {status:failure ? 429 : 200});
     };
+    const searchFetch = window.fetch;
     const submit = async query => {
       s.topicSearchInput.value = query;
       s.topicSearchPanel.querySelector('form').requestSubmit();
@@ -804,7 +826,8 @@ try {
         if(findKey(document,options).defaultPrevented) throw Error('非查找组合键被拦截');
       }
       s.settingsToggle.click();
-      if(findKey(document).defaultPrevented) throw Error('设置层中抢占查找');s.settingsCloseButton.click();
+      if(findKey(document).defaultPrevented) throw Error('设置层中抢占查找');s.settingsPanel.querySelector(".ld-settings-close").click();
+      if (!s.settingsPanel.hidden) throw Error("设置关闭按钮未生效");
       s.replyFabButton.click();
       if(findKey(s.replyTextarea).defaultPrevented) throw Error('回复输入中抢占查找');s.replyCancelButton.click();
       const overlay=document.createElement('div');overlay.className='d-modal';overlay.textContent='原站浮层';document.body.append(overlay);
@@ -842,12 +865,35 @@ try {
       s.topicSearchPanel.querySelector('.ld-topic-search-close').click();
       if (!s.topicSearchPanel.hidden || CSS.highlights.has('ld-topic-search') || s.topicSearchHighlightObserver) throw Error('手动关闭未清理搜索高亮');
       s.topicSearchButton.click();
-      results = {posts:Array.from({length:50}, (_,i) => ({topic_id:1, post_number:i+1, blurb:'较长的搜索结果摘要 '.repeat(30)})), grouped_search_result:{}};
+      results = {posts:Array.from({length:50}, (_,i) => ({id:100+i, topic_id:1, post_number:i+1, blurb:'较长的搜索结果摘要 '.repeat(30)})), grouped_search_result:{}};
       await submit('大量结果');
       const panel = s.topicSearchPanel.getBoundingClientRect(), main = s.replyPanelMain.getBoundingClientRect();
       const rows = s.topicSearchResults, pages = s.topicSearchPanel.querySelector('.ld-topic-search-pages').getBoundingClientRect();
       rows.scrollTop = rows.scrollHeight;
       if (panel.height > main.height * 0.4 + 1 || rows.scrollTop === 0 || pages.bottom > panel.bottom || s.drawerBody.clientHeight < 100) throw Error('大量搜索结果未限制高度或不能内部滚动：' + JSON.stringify({panel:panel.height,main:main.height,scroll:rows.scrollTop,pagesBottom:pages.bottom,panelBottom:panel.bottom,body:s.drawerBody.clientHeight}));
+      results = {posts:[
+        {id:123,topic_id:1,post_number:23,username:'user19',blurb:'图片回复',cooked:'<p>图片回复<img src="/690x419.png" alt="19" width="690" height="419"></p><div class="lightbox-wrapper"><div class="meta">690×419</div></div>'},
+        {id:125,topic_id:1,post_number:25,blurb:'另一张图片',cooked:'<p><a href="/19">另一张图片</a><img height="195"><span hidden>19</span><script>19</script></p>'},
+        {id:126,topic_id:1,post_number:26,blurb:'摘要被截断',cooked:'<p>'+ '前文'.repeat(200)+'正文包含 <strong>19</strong> 天</p>'},
+        {id:127,topic_id:1,post_number:27,blurb:'代码与引用',cooked:'<blockquote>引用 19</blockquote><pre>const count = 19;</pre>'}
+      ],grouped_search_result:{more_full_page_results:true}};
+      const contentResults={...results,posts:[...results.posts]};
+      await submit('19');
+      if(s.topicSearchResults.children.length!==2 || !s.topicSearchResults.firstChild.textContent.startsWith('#26') || !s.topicSearchResults.textContent.includes('正文包含 19 天')) throw Error('图片尺寸/地址/隐藏文字误命中，或截断摘要漏掉真实正文');
+      if(!highlights().some(r=>s.topicSearchResults.contains(r.startContainer) && r.toString()==='19')) throw Error('正文命中摘要未高亮');
+      results.posts=results.posts.slice(0,2);await submit('19');
+      if(s.topicSearchResults.children.length || !s.topicSearchStatus.textContent.includes('可继续下一页') || s.topicSearchPanel.querySelector('[data-search-page="next"]').hidden) throw Error('过滤空页误报全话题无结果或隐藏下一页');
+      for(const mode of ['failure','missing']) {
+        bodyMode=mode;await submit('19');
+        if(!s.topicSearchStatus.textContent.includes('搜索失败') || s.topicSearchResults.children.length) throw Error('正文核对失败被当作无结果或仍展示未经核实的结果');
+      }
+      bodyMode='delay';s.topicSearchInput.value='19';s.topicSearchPanel.querySelector('form').requestSubmit();
+      await waitFor(()=>bodyRequests.at(-1)?.resolve);
+      const staleBody=bodyRequests.at(-1);bodyMode='';
+      results={posts:[],grouped_search_result:{}};await submit('新查询');
+      if(!staleBody.options.signal.aborted) throw Error('新搜索未取消正文核对请求');
+      staleBody.resolve(new Response(JSON.stringify({post_stream:{posts:[]}}),{headers:{'content-type':'application/json'}}));await settle();
+      if(s.topicSearchQuery!=='新查询' || s.topicSearchResults.children.length) throw Error('旧正文响应覆盖新搜索');
       results = {posts:[], grouped_search_result:{}}; await submit('空结果');
       if (!s.topicSearchStatus.textContent.includes('没有匹配')) throw Error('无结果提示错误');
       failure = true; await submit('请求失败');
@@ -865,7 +911,8 @@ try {
       switching.resolve(new Response(JSON.stringify(results))); await settle();
       s.topicSearchButton.click(); s.settingsToggle.click();
       if (s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('打开设置意外关闭搜索');
-      s.settingsCloseButton.click(); s.replyFabButton.click();
+      s.settingsPanel.querySelector(".ld-settings-close").click();
+      if (!s.settingsPanel.hidden) throw Error("设置关闭按钮未生效"); s.replyFabButton.click();
       if (s.topicSearchPanel.hidden || !s.topicSearchButton.hidden) throw Error('打开回复意外关闭搜索');
       s.replyCancelButton.click();
       await submit('关闭中'); const closing = requests.at(-1);
@@ -873,11 +920,29 @@ try {
       if (!closing.options.signal.aborted || !s.topicSearchPanel.hidden) throw Error('关闭抽屉未取消搜索');
       if(findKey(document).defaultPrevented) throw Error('抽屉关闭后仍抢占浏览器查找');
       closing.resolve(new Response(JSON.stringify(results))); await settle();
+      window.showContentSearch=async()=>{
+        const before=window.fetch;window.fetch=searchFetch;
+        try {
+          results=contentResults;failure=delayed=false;bodyMode='';s.authorFilter='all';
+          document.querySelector('#main-outlet a[href="/t/test/1"]').click();
+          await window.previewTest.loadTopic(s.currentUrl,'正文搜索',1);
+          if(s.topicSearchPanel.hidden) s.topicSearchButton.click();
+          await submit('19');
+        } finally {window.fetch=before;}
+      };
       return '帖内搜索常驻、分页、文本安全、高亮及重绘、侧栏楼层定位、空结果、失败及切帖/关闭竞态：通过';
     } finally {
       window.fetch = previousFetch; window.open = previousOpen;
     }
   })()`).trim());
+  if (process.env.SIDEPEEK_SCREENSHOT_DIR) {
+    evaluate('showContentSearch()');
+    for(const width of [1280,390]) {
+      run(['set','viewport',String(width),'800']);
+      run(['screenshot',path.join(process.env.SIDEPEEK_SCREENSHOT_DIR,`content-search-${width}.png`)]);
+    }
+    evaluate('document.querySelector(".ld-drawer-close").click();delete window.showContentSearch');
+  }
   console.log(evaluate(`(async () => {
     const s = previewTest.state;
     s.prefetchObserver.disconnect(); s.prefetchVisible.clear(); s.topicCache.clear();

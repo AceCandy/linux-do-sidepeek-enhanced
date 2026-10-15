@@ -361,6 +361,33 @@ try {
     shot("tree-multilevel-mobile");
     run(["set","viewport","390","844"]);
   }
+  console.log(evaluate(`(async () => {
+    const s=replyTest.state;
+    s.authorFilter='all';s.settings.replyDisplay='inline';s.settings.replyOrder='latestFirst';
+    s.topicCache.clear();s.currentUrl='https://linux.do/t/test/1';
+    const previousFetch=window.fetch;
+    window.fetch=async(input,options={})=>{
+      const url=new URL(input,location.href);
+      if(url.pathname.endsWith('/last.json') && !url.searchParams.has('filter_top_level_replies')) {
+        return new Response(JSON.stringify({...replyTopic,post_stream:{posts:[makePost(11,9)],stream:replyTopic.post_stream.stream}}),{headers:{'content-type':'application/json'}});
+      }
+      return previousFetch(input,options);
+    };
+    try {
+      await replyTest.loadTopic(s.currentUrl,'最新子回复',1);await settle();
+      // 顶层最新窗口止于 9，全话题末楼 11 是它的子回复。
+      s.currentLatestRepliesTopic={...replyTopic,__sidePeekTopLevel:true,post_stream:{posts:[makePost(9,null,1)],stream:[109]}};
+      s.bottomFabButton.click();await settle();
+      check(s.currentResolvedTargetPostNumber===11,'顶层最新窗口被误当作全话题末楼');
+      const target=s.content.querySelector('[data-thread-post-number="11"]');
+      check(target && !target.hasAttribute('data-post-number'),'最新子楼未展开');
+      let scrolled=false;target.scrollIntoView=()=>{scrolled=true;};
+      s.bottomFabButton.click();check(scrolled,'已在 last 链接再次点击未定位子楼');
+      target.remove();s.bottomFabButton.click();await settle();
+      check(s.content.querySelector('[data-thread-post-number="11"]'),'同一 last 链接缺失目标时未重新定位');
+    } finally {window.fetch=previousFetch;}
+    return '顶层最新窗口、末楼子回复及重复点击定位：通过';
+  })()`).trim());
   evaluate(`document.documentElement.style.cssText='--primary:#e2e8f0;--secondary:#17212b;--primary-low:#334155;--primary-medium:#94a3b8;--tertiary:#60a5fa';document.body.style.background='#17212b';replyTest.state.drawerBody.scrollTop=0`);
   run(["wait", "--fn", "getComputedStyle(document.querySelector('.ld-post-icon-btn')).color === 'rgb(148, 163, 184)'"]);
   shot("tree-dark");

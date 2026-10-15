@@ -129,7 +129,8 @@ try {
     run(["select", '[data-setting="previewMode"]', "smart"]);
     run(["click", ".ld-drawer-settings-toggle"]);
     if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `smart-settings-${width}.png`)]);
-    run(["press", "Escape"]);
+    run(["click", ".ld-drawer-settings .ld-settings-close"]);
+    evaluate(`if(!navTest.state.settingsPanel.hidden || navTest.state.shortcutsDialog.open) throw Error("设置关闭按钮未关闭设置")`);
   }
   evaluate(`navTest.closeDrawer(); navTest.state.settings.previewMode='iframe'; navTest.openDrawer('https://linux.do/t/nav/101','整页主题',null); if(getComputedStyle(document.querySelector('.ld-topic-iframe')).opacity!=='0') throw Error('内页样式生效前已显示 iframe')`);
   run(["wait", "--fn", "document.querySelector('.ld-topic-iframe')?.contentDocument?.querySelector('#frame-next')"]);

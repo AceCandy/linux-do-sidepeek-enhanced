@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do SidePeek Enhanced（二次开发版）
 // @namespace    https://github.com/AceCandy/linux-do-sidepeek-enhanced
-// @version      1.4.4
+// @version      1.4.5
 // @description  基于 BobDLA/Linux.do SidePeek 的二次开发版：抽屉预览、可见帖子预取、阅读进度同步、信任等级与原站正文组件。
 // @author       BobDLA and contributors; AceCandy (fork maintainer)
 // @match        https://linux.do/*
@@ -4219,8 +4219,8 @@
               </div>
             </div>
             <section class="ld-topic-search-panel" id="ld-topic-search" aria-label="帖内搜索" hidden>
-              <form class="ld-topic-search-form" role="search" aria-label="搜索当前帖子">
-                <input class="ld-topic-search-input" type="search" aria-label="帖内搜索关键词" placeholder="搜索当前帖子全部楼层" required />
+              <form class="ld-topic-search-form" role="search" aria-label="搜索当前话题内容">
+                <input class="ld-topic-search-input" type="search" aria-label="帖内搜索关键词" placeholder="搜索当前话题内容" required />
                 <button class="ld-reply-action" type="submit">搜索</button>
                 <button class="ld-reply-action ld-topic-search-close" type="button" aria-label="关闭帖内搜索">关闭</button>
               </form>
@@ -4327,7 +4327,7 @@
       state.postBodyFontSizeControl = root.querySelector('[data-setting="postBodyFontSize"]');
       state.postBodyFontSizeValue = root.querySelector('[data-setting-value="postBodyFontSize"]');
       state.postBodyFontSizeHint = root.querySelector('[data-setting-hint="postBodyFontSize"]');
-      state.settingsCloseButton = root.querySelector(".ld-settings-close");
+      state.settingsCloseButton = state.settingsPanel.querySelector(".ld-settings-close");
       state.settingsToggle = root.querySelector(".ld-drawer-settings-toggle");
       state.authorFilterButton = root.querySelector(".ld-drawer-owner-filter");
       state.latestRepliesRefreshButton = root.querySelector(".ld-drawer-refresh");
@@ -7374,15 +7374,41 @@
         const data = await response.json();
         if (controller.signal.aborted) return;
         if (!data || data.errors || data.grouped_search_result?.error) throw new Error("Search failed");
-        const posts = (Array.isArray(data.posts) ? data.posts : []).filter((post) =>
+        const candidates = (Array.isArray(data.posts) ? data.posts : []).filter((post) =>
           Number(post?.topic_id) === topicId && Number.isSafeInteger(post?.post_number) && post.post_number > 0
+          && Number.isSafeInteger(post?.id) && post.id > 0
         );
+        const bodies = new Map();
+        // 搜索接口也匹配原始 Markdown；按页核对完整正文，不能用截断摘要判断命中。
+        for (let offset = 0; offset < candidates.length; offset += LOAD_MORE_BATCH_SIZE) {
+          const batch = await fetchTopicPostsBatch(state.currentUrl,
+            candidates.slice(offset, offset + LOAD_MORE_BATCH_SIZE).map(post => post.id), controller.signal, topicId);
+          if (controller.signal.aborted) return;
+          for (const post of batch) bodies.set(post.id, post);
+        }
+        const keyword = query.replace(/\s+/g, " ").toLowerCase();
+        const posts = [];
+        for (const candidate of candidates) {
+          const post = bodies.get(candidate.id);
+          if (!post || post.post_number !== candidate.post_number || typeof post.cooked !== "string"
+              || (post.topic_id != null && Number(post.topic_id) !== topicId)) throw new Error("Search body unavailable");
+          const doc = new DOMParser().parseFromString(post.cooked, "text/html");
+          doc.querySelectorAll("script, style, template, img, svg, .lightbox-wrapper .meta, [hidden], [aria-hidden='true']")
+            .forEach(node => node.remove());
+          doc.querySelectorAll("br, p, div, li, blockquote, pre, h1, h2, h3, h4, h5, h6, tr, td, th")
+            .forEach(node => node.append(" "));
+          const text = (doc.body.textContent || "").replace(/\s+/g, " ").trim();
+          const match = text.toLowerCase().indexOf(keyword);
+          if (match < 0) continue;
+          const start = Math.max(0, match - 60);
+          const end = Math.min(text.length, match + keyword.length + 120);
+          posts.push({ ...candidate, snippet: `${start ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}` });
+        }
         for (const post of posts) {
           const button = document.createElement("button");
           button.type = "button";
           button.className = "ld-topic-search-result";
-          const snippet = new DOMParser().parseFromString(typeof post.blurb === "string" ? post.blurb : "", "text/html").body.textContent || "";
-          button.textContent = `#${post.post_number} · ${post.username || ""} · ${snippet}`;
+          button.textContent = `#${post.post_number} · ${post.username || ""} · ${post.snippet}`;
           button.title = "在当前侧栏定位楼层";
           button.addEventListener("click", () => {
             navigateToPost(post.post_number);
@@ -7395,7 +7421,7 @@
         const more = Boolean(data.grouped_search_result?.more_full_page_results || data.grouped_search_result?.more_posts);
         state.topicSearchStatus.textContent = posts.length
           ? `第 ${page} 页 · ${posts.length} 条结果${more && page >= 10 ? "；请缩小搜索范围查看更多" : ""}`
-          : "当前帖子没有匹配内容。";
+          : `本页没有匹配的正文内容。${more ? (page < 10 ? "可继续下一页。" : "请缩小搜索范围。") : ""}`;
         prev.hidden = page <= 1;
         next.hidden = !more || page >= 10;
         state.topicSearchResults.scrollTop = 0;
@@ -7440,7 +7466,9 @@
         return;
       }
 
-      const latestPosts = state.currentLatestRepliesTopic?.post_stream?.posts || [];
+      const latestPosts = state.currentLatestRepliesTopic?.__sidePeekTopLevel
+        ? []
+        : state.currentLatestRepliesTopic?.post_stream?.posts || [];
       const loadedPosts = state.currentTopic.post_stream?.posts || [];
       const knownLatestPost = state.currentTargetSpec?.targetToken === "last"
         ? state.currentResolvedTargetPostNumber
@@ -7448,7 +7476,7 @@
           ? [...latestPosts, ...loadedPosts].reduce((latest, post) => Math.max(latest, Number(post?.post_number) || 0), 0)
           : null);
       const target = knownLatestPost
-        ? state.content?.querySelector(`.ld-post-card[data-post-number="${knownLatestPost}"]`)
+        ? state.content?.querySelector(`[data-thread-post-number="${knownLatestPost}"]`)
         : null;
       if (target) {
         target.scrollIntoView({ block: "start", behavior: "instant" });
@@ -7463,7 +7491,14 @@
       const slug = typeof state.currentTopic.slug === "string" && state.currentTopic.slug.trim()
         ? state.currentTopic.slug.trim()
         : "topic";
-      openDrawer(`${location.origin}/t/${slug}/${topicId}/last`, state.currentFallbackTitle, state.activeLink);
+      const url = `${location.origin}/t/${slug}/${topicId}/last`;
+      if (state.currentUrl === url) {
+        loadTopic(url, state.currentFallbackTitle, topicId);
+        return;
+      }
+      // 主动跳到末楼时，不恢复上次浏览 /last 留下的滚动位置。
+      getCachedTopic(url)?.views?.delete(getTopicViewKey(url));
+      openDrawer(url, state.currentFallbackTitle, state.activeLink);
     }
 
     function shouldRefreshCurrentTopicOnRepeatOpen() {
