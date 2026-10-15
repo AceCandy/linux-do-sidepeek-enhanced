@@ -19,8 +19,9 @@ const css = fs.readFileSync(path.join(__dirname, "../src/content.css"), "utf8");
 const html = '<!doctype html><meta charset="utf-8"><title>抽屉导航固定页</title><main id="main-outlet">' +
   '<div class="topic-list-item"><a class="title" href="/t/nav/101">主题 101</a></div></main>';
 const frameHtml = '<!doctype html><meta charset="utf-8"><title>整页主题</title>' +
-  '<div class="d-header-wrap"><header class="d-header">LINUX DO 内嵌导航</header></div><h1>整页主题正文标题</h1><p>主题正文</p>' +
-  '<a id="frame-next" href="/t/nav/102">整页内主题 102</a><input aria-label="整页输入" id="frame-input">';
+  '<style>#main-outlet-wrapper{display:grid;grid-template-areas:"sidebar content" "sidebar below-content";grid-template-columns:220px minmax(0,1fr);column-gap:24px}.sidebar-wrapper{grid-area:sidebar}#main-outlet{grid-area:content}</style>' +
+  '<div class="d-header-wrap"><header class="d-header">LINUX DO 内嵌导航</header></div><div id="main-outlet-wrapper"><aside class="sidebar-wrapper">话题、分类、标签</aside><main id="main-outlet"><h1>整页主题正文标题</h1><p>主题正文</p>' +
+  '<a id="frame-next" href="/t/nav/102">整页内主题 102</a><input aria-label="整页输入" id="frame-input"></main></div>';
 
 try {
   run(["open", "about:blank"]);
@@ -40,7 +41,7 @@ try {
       }]}}),{headers:{'content-type':'application/json'}});
     };
     const style=document.createElement('style'); style.textContent=${JSON.stringify(css)} + ':where(.ld-shortcuts) button {width:600px}'; document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.navTest = { state, openDrawer, closeDrawer, handlePreviewTopicClick };")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.navTest = { state, openDrawer, closeDrawer, handlePreviewTopicClick, loadSettings };")}
   })()`);
   run(["click", "#main-outlet a"]);
   run(["wait", "--fn", "navTest.state.currentTopic?.id === 101"]);
@@ -93,6 +94,7 @@ try {
       for(const field of s.settingsPanel.querySelectorAll('[data-smart-setting]')) {
         if(field.hidden!==${mode === "iframe"} || (getComputedStyle(field).display==='none')!==${mode === "iframe"}) throw Error('设置项可见性错误');
       }
+      if(s.settingsPanel.querySelector('[data-iframe-setting]').hidden!==${mode !== "iframe"}) throw Error('边栏设置可见性错误');
       if(s.settings.postBodyFontSize!==17 || s.settings.replyOrder!=='latestFirst' || s.settings.replyDisplay!=='legacy') throw Error('模式切换丢失设置值');
       if(s.settingsPanel.querySelector('[data-setting="replyOrder"]').options.length!==2) throw Error('回复排序被误删');
       return '${mode} 模式设置可见性及回复排序保留：通过';
@@ -142,9 +144,27 @@ try {
       if(getComputedStyle(navTest.state.title.closest('.ld-drawer-header')).display!=='none' ||
           frame.contentWindow.getComputedStyle(doc.querySelector('.d-header-wrap')).display!=='none') throw Error('整页重复标题或导航未隐藏');
       if(!doc.querySelector('h1').getBoundingClientRect().height || !document.querySelector('.ld-drawer-close').getBoundingClientRect().height) throw Error('正文标题或扩展操作被隐藏');
-      return '整页 ${width}px 隐藏重复标题/导航、保留正文与操作：通过';
+      if(frame.contentWindow.getComputedStyle(doc.querySelector('.sidebar-wrapper')).display!=='none') throw Error('内页侧栏未隐藏');
+      const wrapper=doc.querySelector('#main-outlet-wrapper').getBoundingClientRect(), content=doc.querySelector('#main-outlet').getBoundingClientRect();
+      if(Math.abs(content.left-wrapper.left)>1 || Math.abs(content.width-wrapper.width)>1) throw Error('内页侧栏仍占据正文空间');
+      return '整页 ${width}px 隐藏重复标题/导航/侧栏、正文回收宽度并保留操作：通过';
     })()`).trim());
     if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `iframe-content-${width}.png`)]);
+    evaluate(`window.sidebarFrame=document.querySelector('.ld-topic-iframe');window.sidebarDoc=sidebarFrame.contentDocument`);
+    run(["click", ".ld-drawer-settings-toggle"]);
+    if (process.env.SIDEPEEK_SCREENSHOT_DIR) run(["screenshot", path.join(process.env.SIDEPEEK_SCREENSHOT_DIR, `sidebar-settings-${width}.png`)]);
+    for (const value of ["on", "off"]) {
+      run(["select", '[data-setting="showIframeSidebar"]', value]);
+      console.log(evaluate(`(() => {
+        if(document.querySelector('.ld-topic-iframe')!==sidebarFrame || sidebarFrame.contentDocument!==sidebarDoc) throw Error('切换边栏重载了内页');
+        const hidden=sidebarFrame.contentWindow.getComputedStyle(sidebarDoc.querySelector('.sidebar-wrapper')).display==='none';
+        if(hidden!==${value === "off"} || navTest.loadSettings().showIframeSidebar!==${JSON.stringify(value)}) throw Error('边栏切换或持久化失败');
+        const offset=sidebarDoc.querySelector('#main-outlet').getBoundingClientRect().left-sidebarDoc.querySelector('#main-outlet-wrapper').getBoundingClientRect().left;
+        if(Math.abs(offset-${value === "on" ? 244 : 0})>1) throw Error('边栏布局恢复失败');
+        return '边栏 ${value} 即时生效、保留文档和持久化：通过';
+      })()`).trim());
+    }
+    run(["click", ".ld-drawer-settings .ld-settings-close"]);
   }
   console.log(evaluate(`(() => {
     const frame=document.querySelector('.ld-topic-iframe'), doc=frame.contentDocument;

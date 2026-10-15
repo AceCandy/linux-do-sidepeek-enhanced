@@ -24,6 +24,7 @@
   const REPLY_UPLOAD_MARKER = "\u2063";
   const DEFAULT_SETTINGS = {
     previewMode: "auto",
+    showIframeSidebar: "off",
     postBodyFontSize: 15,
     replyOrder: "default",
     replyDisplay: "inline",
@@ -503,6 +504,14 @@
                   <option value="smart">智能预览</option>
                   <option value="iframe">整页模式</option>
                 </select>
+              </label>
+              <label class="ld-setting-field" data-iframe-setting>
+                <span class="ld-setting-label">显示边栏</span>
+                <select class="ld-setting-control" data-setting="showIframeSidebar">
+                  <option value="off">隐藏</option>
+                  <option value="on">显示</option>
+                </select>
+                <span class="ld-setting-hint">控制整页预览内的原站侧栏</span>
               </label>
               <label class="ld-setting-field" data-setting-group="postBodyFontSize" data-smart-setting>
                 <div class="ld-setting-row">
@@ -3600,6 +3609,7 @@
         const style = frameDocument.createElement("style");
         style.textContent = ".d-header-wrap, .d-header { display: none !important; }";
         frameDocument.head.append(style);
+        syncIframeSidebar(frameDocument);
         frameDocument.addEventListener("click", handlePreviewTopicClick, true);
         frameDocument.addEventListener("keydown", handlePreviewHistoryKeydown, true);
       } catch {
@@ -3611,6 +3621,25 @@
 
     container.append(iframe);
     state.content.replaceChildren(container);
+  }
+
+  function syncIframeSidebar(frameDocument) {
+    if (!frameDocument?.head) return;
+    let style = frameDocument.getElementById("ld-iframe-sidebar-style");
+    if (!style) {
+      style = frameDocument.createElement("style");
+      style.id = "ld-iframe-sidebar-style";
+      style.textContent = `
+        .sidebar-wrapper { display: none !important; }
+        #main-outlet-wrapper {
+          grid-template-areas: "content" "below-content" !important;
+          grid-template-columns: minmax(0, 1fr) !important;
+          column-gap: 0 !important;
+        }
+      `;
+      frameDocument.head.append(style);
+    }
+    style.disabled = state.settings.showIframeSidebar === "on";
   }
 
   function buildIframeReplyTopic(topicUrl, fallbackTitle) {
@@ -7513,7 +7542,7 @@
         settings.replyDisplay = DEFAULT_SETTINGS.replyDisplay;
       }
 
-      for (const key of ["showTrustStatus", "listAlignLeft", "enhancedBookmarks"]) {
+      for (const key of ["showTrustStatus", "listAlignLeft", "enhancedBookmarks", "showIframeSidebar"]) {
         if (settings[key] !== "on" && settings[key] !== "off") settings[key] = DEFAULT_SETTINGS[key];
       }
 
@@ -7632,6 +7661,9 @@
     for (const field of state.settingsPanel.querySelectorAll("[data-smart-setting]")) {
       field.hidden = state.settings.previewMode === "iframe";
     }
+    for (const field of state.settingsPanel.querySelectorAll("[data-iframe-setting]")) {
+      field.hidden = state.settings.previewMode !== "iframe";
+    }
     syncPostBodyFontSizeValue();
     syncPostBodyFontSizeControlState();
   }
@@ -7727,6 +7759,11 @@
 
     if (key === "postBodyFontSize") {
       applyPostBodyFontSize();
+      return;
+    }
+
+    if (key === "showIframeSidebar") {
+      syncIframeSidebar(state.content?.querySelector(".ld-topic-iframe")?.contentDocument);
       return;
     }
 
