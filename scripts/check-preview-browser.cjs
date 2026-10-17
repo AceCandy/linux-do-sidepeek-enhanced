@@ -50,7 +50,7 @@ try {
     const style = document.createElement("style");
     style.textContent = ${JSON.stringify(css)};
     document.head.append(style);
-    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic, fetchPreviewResponse, runTopicPrefetch, loadVisibleInlineReplies, REACTION_URL_CACHE };")}
+    ${source.replace(/^  init\(\);$/m, "  init(); globalThis.previewTest = { state, getVisibleReadingPosts, buildPostCard, initializePostCarousels, loadTopic, fetchPreviewResponse, runTopicPrefetch, loadVisibleInlineReplies, syncEditedPost, renderIframeFallback, REACTION_URL_CACHE };")}
   })()`);
   run(["wait", "--fn", "window.previewTest.state.topicCache.size === 6"]);
   console.log(evaluate(`(() => {
@@ -431,6 +431,94 @@ try {
   evaluate("reactionLayoutTest.siteStyle.remove(); document.documentElement.style.cssText=''; document.body.style.background=''");
   run(['set','viewport','1280','720']);
   console.log(evaluate(`(async () => {
+    const s = previewTest.state, makeCard = previewTest.buildPostCard;
+    const before = { fetch: window.fetch, confirm: window.confirm, topic:s.currentTopic, content:s.content,
+      children:[...s.drawerBody.childNodes], url:s.currentUrl, direct:s.directReplyCache, parents:s.replyParentCache };
+    const post = {id:101, post_number:1, username:'me', yours:true, can_edit:true, cooked:'<p>旧正文</p>'};
+    const child = {...post,id:102,post_number:2,reply_to_post_number:1};
+    const calls = [], json = (data,status=200) => new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json'}});
+    let fail = false, denied = false, malformed = false, pending = null, delay = false;
+    const settle = () => new Promise(resolve => setTimeout(resolve,20));
+    const wait = async () => {for(let i=0;s.isReplySubmitting && i<100;i++) await settle();if(s.isReplySubmitting) throw Error('编辑请求未结束');};
+    try {
+      s.currentTopic={id:1, title:'编辑固定主题',posts_count:2,post_stream:{posts:[post],stream:[101,102]}};
+      s.currentUrl='/t/test/1';s.root.setAttribute('aria-hidden','false');
+      s.content=document.createElement('div');s.content.className='ld-drawer-content';s.drawerBody.replaceChildren(s.content);
+      const card=makeCard(post), childCard=makeCard(child,null,{ancestors:[1]});
+      const thread=document.createElement('div');thread.className='ld-inline-thread';thread.append(childCard);card.append(thread);s.content.append(card);
+      s.directReplyCache=new Map([[1,{posts:[child],pendingPosts:[]}]]);s.replyParentCache=new Map([[2,child]]);
+      const cachedChild={...child};s.topicCache.set('edit-regression',{fetchedAt:Date.now(),cachedAt:Date.now(),topic:{post_stream:{posts:[cachedChild]}}});
+      s.replyTextarea.value='未发送的回复草稿';s.replyTargetPostNumber=3;s.replyTargetLabel='#3 @other';
+      window.fetch=async (input,options={})=>{
+        const id=Number(new URL(input,location.href).pathname.match(/posts\\/(\\d+)\\.json/)?.[1]);
+        if(!id) return before.fetch(input,options);
+        calls.push({id,method:options.method,body:options.body?.toString(),signal:options.signal,credentials:options.credentials});
+        if(delay) return new Promise(resolve=>pending={resolve,options});
+        if(fail) return json({errors:['模拟保存失败']},403);
+        const item=id===101?post:child;
+        if(options.method==='PUT') return json(malformed?{}:{post:{...item,raw:new URLSearchParams(options.body).get('post[raw]'),cooked:'<p>已编辑 '+id+'</p>'}});
+        return json({...item,raw:'  原文 Markdown  ',can_edit:!denied});
+      };
+      if(makeCard({...post,yours:false}).querySelector('.ld-post-edit-btn') || makeCard({...post,can_edit:false}).querySelector('.ld-post-edit-btn')) throw Error('越权显示编辑入口');
+      card.querySelector('.ld-post-edit-btn').click();await wait();
+      if(s.replyTextarea.value!=='  原文 Markdown  ' || s.replySubmitButton.textContent!=='保存修改' || s.replyPanelTitle.textContent!=='编辑第 1 楼') throw Error('未加载原文或仍使用发送回复入口');
+      s.replyTextarea.value='  新正文  ';previewTest.renderIframeFallback(s.currentUrl,'',new Error('后台刷新失败'));
+      if(!s.replyEdit || s.replyTextarea.value!=='  新正文  ' || s.root.classList.contains('ld-drawer-iframe-mode')) throw Error('后台刷新失败丢失修改或切入整页');
+      fail=true;s.replySubmitButton.click();await wait();
+      if(s.replyTextarea.value!=='  新正文  ' || !s.replyStatus.textContent.includes('模拟保存失败') || !s.replyEdit) throw Error('编辑失败丢失修改');
+      const token=document.querySelector('meta[name="csrf-token"]');token.content='changed-session';const count=calls.length;
+      s.replySubmitButton.click();await wait();
+      if(calls.length!==count || !s.replyStatus.textContent.includes('登录状态已变化') || s.replyTextarea.value!=='  新正文  ') throw Error('账号变化后仍保存或丢失修改');
+      token.content='test-csrf';fail=false;malformed=true;s.replySubmitButton.click();await wait();
+      if(!s.replyEdit || !s.replyStatus.textContent.includes('无法确认是否保存成功')) throw Error('异常成功响应误报已保存');
+      malformed=false;s.replySubmitButton.click();await wait();
+      if(!s.replyPanel.hidden || s.replyEdit || s.replyTextarea.value!=='未发送的回复草稿' || s.replyTargetPostNumber!==3 || post.cooked!=='<p>已编辑 101</p>' || !card.textContent.includes('已编辑 101') || !thread.isConnected) throw Error('首帖更新、子树保留或草稿恢复失败');
+      const writes=calls.filter(x=>x.method==='PUT');
+      if(writes.length!==3 || writes.some(x=>new URLSearchParams(x.body).get('post[raw]')!=='  新正文  ' || x.credentials!=='include') || calls.some(x=>x.method==='POST') || s.currentTopic.posts_count!==2) throw Error('编辑请求内容错误或误发新回复');
+      childCard.querySelector('.ld-post-edit-btn').click();await wait();s.replyTextarea.value='子楼修改';s.replySubmitButton.click();await wait();
+      if(child.cooked!=='<p>已编辑 102</p>' || cachedChild.cooked!==child.cooked || !childCard.textContent.includes('已编辑 102')) throw Error('子楼或缓存未同步修改：'+JSON.stringify({child:child.cooked,cached:cachedChild.cooked,text:childCard.textContent,status:s.replyStatus.textContent,editing:s.replyEdit?.post.id,calls:calls.map(x=>[x.id,x.method])}));
+      childCard.querySelector('.ld-post-edit-btn').click();await wait();s.replyTextarea.value='不能丢的修改';window.confirm=()=>false;
+      s.replyCancelButton.click();document.querySelector('.ld-drawer-close').click();document.querySelector('#main-outlet a[href="/t/test/2"]').click();
+      if(!s.replyEdit || s.replyPanel.hidden || s.root.getAttribute('aria-hidden')==='true' || s.currentUrl!=='/t/test/1') throw Error('拒绝放弃后仍关闭编辑、抽屉或切帖');
+      window.confirm=()=>true;s.replyCancelButton.click();
+      if(s.replyEdit || s.replyTextarea.value!=='未发送的回复草稿') throw Error('取消编辑未恢复回复草稿');
+      denied=true;card.querySelector('.ld-post-edit-btn').click();await wait();
+      if(!s.replySubmitButton.disabled || !s.replyStatus.textContent.includes('不可编辑')) throw Error('未复核最新编辑权限');
+      s.replyCancelButton.click();denied=false;delay=true;
+      card.querySelector('.ld-post-edit-btn').click();await settle();s.replyCancelButton.click();
+      if(!pending.options.signal.aborted) throw Error('取消原文读取未取消请求');
+      pending.resolve(json({...post,raw:'迟到的原文'}));await settle();
+      if(s.replyEdit || s.replyTextarea.value!=='未发送的回复草稿') throw Error('迟到原文覆盖回复草稿');
+      delay=false;
+      const siteForm=document.createElement('style');siteForm.textContent='textarea {width:600px;min-width:500px;box-sizing:content-box} .ld-drawer-reply-panel button {width:240px;min-width:100px}';document.head.append(siteForm);
+      window.showPostEditor=async()=>{s.toastStack.replaceChildren();s.replyTextarea.value='';childCard.querySelector('.ld-post-edit-btn').click();await wait();};
+      window.finishPostEditor=()=>{window.confirm=()=>true;s.replyCancelButton.click();};
+      window.restorePostEditorTest=()=>{
+        siteForm.remove();window.fetch=before.fetch;window.confirm=before.confirm;s.currentTopic=before.topic;s.content=before.content;s.currentUrl=before.url;
+        s.drawerBody.replaceChildren(...before.children);s.directReplyCache=before.direct;s.replyParentCache=before.parents;s.topicCache.delete('edit-regression');s.replyTextarea.value='';
+      };
+      return '编辑本人首帖/子楼：原文、权限、PUT 保存、错误保留、缓存同步、草稿保护及取消竞态：通过';
+    } catch(error) {window.fetch=before.fetch;window.confirm=before.confirm;throw error;}
+  })()`).trim());
+  for(const width of [1280,390,320]) {
+    run(['set','viewport',String(width),'720']);
+    evaluate('showPostEditor()');
+    console.log(evaluate(`(() => {
+      const s=previewTest.state,p=s.replyPanel.getBoundingClientRect(),button=s.replySubmitButton.getBoundingClientRect(),input=s.replyTextarea.getBoundingClientRect();
+      if(p.left<0 || p.right>innerWidth+1 || input.left<p.left || input.right>p.right-8 || button.bottom>innerHeight || button.width<40 || s.replySubmitButton.textContent!=='保存修改') throw Error('编辑面板关键操作不可见');
+      return '编辑面板及保存入口可见：通过（${width}px）';
+    })()`).trim());
+    if(process.env.SIDEPEEK_SCREENSHOT_DIR) run(['screenshot',path.join(process.env.SIDEPEEK_SCREENSHOT_DIR,`post-editor-${width}.png`)]);
+    evaluate('finishPostEditor()');
+  }
+  if(process.env.SIDEPEEK_SCREENSHOT_DIR) {
+    evaluate('document.documentElement.style.cssText="--primary:#e5e7eb;--secondary:#1f2937;--primary-low:#374151;--primary-medium:#9ca3af;--tertiary:#60a5fa";showPostEditor()');
+    run(['screenshot',path.join(process.env.SIDEPEEK_SCREENSHOT_DIR,'post-editor-dark.png')]);
+    evaluate('finishPostEditor();document.documentElement.style.cssText=""');
+  }
+  evaluate('restorePostEditorTest()');
+  run(['set','viewport','1280','720']);
+  console.log(evaluate(`(async () => {
     ${nativeSource}
     const { state, buildPostCard } = window.previewTest;
     let destroyed = 0;
@@ -439,11 +527,14 @@ try {
     let boostRecord;
     let userCardTrigger = null;
     const appEvents = { trigger: (...args) => { userCardTrigger = args; } };
-    const store = { createRecord: (kind, data) => {
-      const record = { ...data, destroy: () => destroyedPosts++ };
+    const store = { createRecord: () => { throw Error('原生桥不得复用共享缓存模型'); } };
+    const nativeRecords=[];
+    const createPost = data => {
+      const record = { ...data, set(key,value){this[key]=value;}, destroy: () => {record.isDestroyed=true;destroyedPosts++;} };
       if (data.can_boost) boostRecord = record;
+      nativeRecords.push(record);
       return record;
-    } };
+    };
     const modules = {
       "discourse/lib/get-owner": { getOwnerWithFallback: () => ({ lookup: name => name === "service:app-events" ? appEvents : store }) },
       "@ember/application": { getOwner: () => ({}), setOwner: () => {} },
@@ -460,6 +551,7 @@ try {
       }) }) } },
       "@ember/runloop": { run: fn => fn() },
       "ember-curry-component": { default: (component, args) => ({component,args}) },
+      "discourse/models/post": {default:{create:createPost}},
       "discourse/components/post/cooked-html": { default: {} },
       "discourse/components/render-glimmer-container": { default: {} }
     };
@@ -526,8 +618,54 @@ try {
     state.root.setAttribute('aria-hidden', 'true');
     await new Promise(resolve => setTimeout(resolve, 0));
     if (destroyed !== beforeClose + 4 || boostTarget.children.length || childBoost.children.length || boostCard.querySelector('.ld-native-body')) throw Error('关闭未释放 Boost 和正文');
+    state.root.setAttribute('aria-hidden','false');
+    const editedPost={id:778,post_number:2,cooked:'<p>编辑前</p>'};
+    const editedCard=buildPostCard(editedPost);state.drawerBody.replaceChildren(editedCard);await new Promise(resolve=>setTimeout(resolve,0));
+    const oldRecord=nativeRecords.at(-1);state.replyEdit={post:editedPost};
+    previewTest.syncEditedPost({id:778,cooked:'<p>编辑后</p>'});await new Promise(resolve=>setTimeout(resolve,0));state.replyEdit=null;
+    if(!oldRecord.isDestroyed || nativeRecords.at(-1)===oldRecord || nativeRecords.at(-1).isDestroyed || nativeRecords.at(-1).cooked!=='<p>编辑后</p>' || !editedCard.querySelector('.ld-native-body')) throw Error('编辑后正文模型被旧组件销毁或未重新挂载');
+    const FlagModal={}, PostFlag=class {}, wait=()=>new Promise(resolve=>setTimeout(resolve,0));
+    let shown=0,closed=0,rejectModal=false,delayModal=false;
+    const modal={opts:null,resolve:null,show:async function(component,options) {
+      if(rejectModal) throw Error('模拟弹窗初始化失败');
+      if(delayModal) await new Promise(resolve=>this.start=resolve);
+      this.opts=options;this.component=component;shown++;
+      const node=document.createElement('div');node.className='d-modal';document.body.append(node);this.node=node;
+      return new Promise(resolve=>this.resolve=resolve);
+    },close:function(){closed++;this.node?.remove();this.opts=null;this.resolve?.();}};
+    modules['discourse/components/modal/flag']={default:FlagModal};
+    modules['discourse/lib/flag-targets/post-flag']={default:PostFlag};
+    modules['discourse/lib/get-owner']={getOwnerWithFallback:()=>({lookup:name=>({'service:current-user':{id:1},'service:modal':modal,'service:store':store})[name]})};
+    const flagCard=buildPostCard({id:789,post_number:2,username:'other',cooked:'<p>举报对象</p>',actions_summary:[{id:3,can_act:true},{id:4,can_act:true},{id:8,can_act:true}]});
+    state.drawerBody.replaceChildren(flagCard);await wait();
+    const flagButton=flagCard.querySelector('.ld-post-icon-btn--flag');
+    const showModal=modal.show;modal.show=()=>undefined;state.toastStack.replaceChildren();flagButton.click();await wait();
+    if(!state.toastStack.textContent.includes('原站举报弹窗暂不可用')) throw Error('不兼容的弹窗接口没有回退提示');modal.show=showModal;
+    const fetchBefore=window.fetch;let flagWrites=0;window.fetch=async(...args)=>{flagWrites++;return fetchBefore(...args);};
+    flagButton.click();flagButton.click();await wait();
+    if(shown!==1 || modal.component!==FlagModal || !(modal.opts.model.flagTarget instanceof PostFlag) || modal.opts.model.flagModel.id!==789 || modal.opts.model.flagModel.actions_summary.length!==3 || flagCard.querySelector('.ld-flag-popover') || flagButton.hasAttribute('data-ld-native-post') || flagWrites) throw Error('未使用完整原站弹窗、重复打开或擅自提交举报');
+    document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    if(state.root.getAttribute('aria-hidden')==='true') throw Error('举报弹窗内 Esc 误关抽屉');
+    modal.close();await wait();
+    flagButton.click();await wait();const count=closed;flagCard.remove();await wait();
+    if(closed!==count+1 || modal.opts) throw Error('切帖未关闭旧举报弹窗');
+    state.drawerBody.append(flagCard);flagButton.click();await wait();state.root.setAttribute('aria-hidden','true');await wait();
+    if(modal.opts) throw Error('关闭抽屉未清理举报弹窗');
+    state.root.setAttribute('aria-hidden','false');await wait();rejectModal=true;flagButton.click();await wait();
+    if(!state.toastStack.textContent.includes('原站举报弹窗暂不可用')) throw Error('原站弹窗失败无回退提示');
+    rejectModal=false;delayModal=true;flagButton.click();await wait();flagCard.remove();modal.start();await wait();await wait();
+    if(modal.opts) throw Error('切帖后异步挂载出旧举报弹窗');
+    delayModal=false;state.drawerBody.append(flagCard);flagButton.click();await wait();
+    const otherModal={model:{other:true}},beforeOther=closed;modal.opts=otherModal;flagCard.remove();await wait();
+    if(closed!==beforeOther || modal.opts!==otherModal) throw Error('切帖误关了原站其它弹窗');
+    modal.node.remove();modal.resolve();modal.opts=null;await wait();
+    state.drawerBody.append(flagCard);flagButton.click();await wait();window.dispatchEvent(new PageTransitionEvent('pagehide'));await wait();
+    if(modal.opts) throw Error('pagehide 未关闭原站举报弹窗');
+    window.dispatchEvent(new PageTransitionEvent('pageshow'));window.fetch=fetchBefore;
+    const foreign=document.createElement('button');foreign.className='ld-post-icon-btn--flag';foreign.setAttribute('data-ld-native-post','{"id":789}');document.body.append(foreign);
+    if(!foreign.dispatchEvent(new Event('ld-open-native-flag',{bubbles:true,cancelable:true}))) throw Error('接管了抽屉外举报请求');foreign.remove();
     delete window.require;
-    return '原站用户卡片、正文/Boost 桥：触发、挂载、状态同步、回退和销毁：通过';
+    return '原站用户卡片、正文/Boost 与举报桥：挂载、原生弹窗、重复/异步窗口、回退和销毁：通过';
   })()`).trim());
   evaluate(`(() => {
     const wrap = document.createElement('div');

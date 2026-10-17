@@ -4,6 +4,57 @@
   const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   const mounted = new Map();
   let observer = null;
+  let flagSession = null;
+
+  document.addEventListener("ld-open-native-flag", (event) => {
+    const button = event.target;
+    if (!(button instanceof HTMLElement) || !button.matches("#ld-drawer-root .ld-post-icon-btn--flag")
+      || button.closest("#ld-drawer-root").getAttribute("aria-hidden") === "true") return;
+    if (flagSession) {
+      event.preventDefault();
+      return;
+    }
+    let post;
+    let session;
+    try {
+      const data = JSON.parse(button.getAttribute("data-ld-native-post"));
+      if (!Number.isSafeInteger(data?.id) || data.id <= 0) return;
+      const load = pageWindow.require;
+      const owner = load("discourse/lib/get-owner").getOwnerWithFallback();
+      if (!owner.lookup("service:current-user")) return;
+      const modal = owner.lookup("service:modal");
+      const FlagModal = load("discourse/components/modal/flag").default;
+      const PostFlag = load("discourse/lib/flag-targets/post-flag").default;
+      // 独立模型避免复用原站缓存，关闭弹窗不能销毁仍在显示的正文模型。
+      post = load("discourse/models/post").default.create(data);
+      const model = { flagTarget: new PostFlag(), flagModel: post, setHidden: () => {
+        if (!post.isDestroyed && !post.isDestroying) post.set("hidden", true);
+      } };
+      session = { button, modal, model, cancelled: false, observer: new MutationObserver(() => {
+        if ((session.cancelled || !button.isConnected || button.closest("#ld-drawer-root")?.getAttribute("aria-hidden") === "true")
+          && modal.opts?.model === model) modal.close();
+      }) };
+      // 也观察原站弹窗挂载，覆盖键盘收起后才显示弹窗的异步窗口。
+      session.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-hidden"] });
+      const closed = modal.show(FlagModal, { model });
+      if (!closed || typeof closed.then !== "function") {
+        if (modal.opts?.model === model) modal.close();
+        throw new Error("原站弹窗接口不可用");
+      }
+      flagSession = session;
+      event.preventDefault();
+      Promise.resolve(closed).catch(() => {
+        if (button.isConnected) button.dispatchEvent(new Event("ld-native-flag-error"));
+      }).finally(() => {
+        session.observer.disconnect();
+        try { post.destroy(); } catch {}
+        if (flagSession === session) flagSession = null;
+      });
+    } catch {
+      session?.observer.disconnect();
+      try { post?.destroy(); } catch {}
+    }
+  });
 
   document.addEventListener("ld-sync-iframe-sidebar", (event) => {
     const frame = event.target;
@@ -117,7 +168,7 @@
       const target = document.createElement("div");
       stage.hidden = true;
       stage.append(target);
-      const post = store.createRecord("post", data);
+      const post = load("discourse/models/post").default.create({ ...data, store, __type: "post", __state: "created" });
       const isBoosts = body.classList.contains("ld-post-boosts");
       entry = { stage, post, run, isBoosts, fallback: [...body.childNodes], wrapper: null };
       const registrations = [];
@@ -168,6 +219,10 @@
   });
 
   window.addEventListener("pagehide", () => {
+    if (flagSession) {
+      flagSession.cancelled = true;
+      if (flagSession.modal.opts?.model === flagSession.model) flagSession.modal.close();
+    }
     for (const [body, entry] of mounted) release(body, entry);
     cleanDetached();
   });

@@ -153,6 +153,7 @@ bash scripts/agent-smoke.sh --cdp-port 9222
 - 楼中楼回归：`node scripts/check-replies-browser.cjs`（固定页面，测试后关闭浏览器）。树形主列表仅首帖及顶层回复，长帖使用 `filter_top_level_replies=true` 的独立根 stream，普通主题数据不删改；直接回复按楼分页，各级默认展开，进入视野附近自动加载（普通自动请求最多三路并发）；重绘/关闭/切帖清理观察器及请求，子楼定位按需补祖先并展开路径。阅读模式仅从设置切换，底部工具栏独立占用布局空间，刷新左侧提供临时只看楼主筛选（默认全部）。仅首帖及阅读/底部回复/宽度预设开关已移除；阅读默认同步，底部回复始终提供，宽度仅通过拖拽保存，旧预设读取时转像素。Boost 位于本楼操作区之后、子树之前，子楼缺少 Boost 权限时补取完整楼层数据。只看楼主时按普通楼层展示，避免隐藏楼主的子回复。内嵌节点不使用主楼定位标识，阅读按实际可见正文去重，收起移除原站组件并取消子区域请求。公共逻辑修改后同步油猴产物。
 - 抽屉导航与设置回归：`node scripts/check-navigation-browser.cjs`。整页隐藏正文专属设置；站内主题普通点击留在抽屉，Option/Alt＋左右使用本次打开期间的历史（关闭清空、边界不跳转），同源 iframe 绑定点击/按键，跨源验证页不接管。顶部仅保留快捷键说明与其他导航操作，回复入口在底部。公共逻辑修改后同步油猴。
 - 预取与阅读回归：`node scripts/check-preview.cjs`、`node scripts/check-preview-browser.cjs`；100 主题缓存回归：`node scripts/check-cache.cjs`。阅读上报只允许实际可见楼层，预取不得计入已读；同一任务中已确认的功能和参数应继续实现，不能因新增子功能而遗漏原有目标。
+- 本人编辑与举报回归：`node scripts/check-preview-browser.cjs`。编辑复用回复面板，重新检查 `yours/can_edit/raw` 后 PUT 原楼层，失败保留修改、退出恢复回复草稿。举报通过 MAIN world 桥打开原站 Flag 弹窗；正文、Boost 和举报使用独立 Post 模型，禁止复用后销毁原站共享缓存模型。切帖/关闭/pagehide 只清理本次发起的弹窗，模块失败提示打开原帖；公共逻辑修改后同步油猴。
 
 ## JavaScript 代码风格
 

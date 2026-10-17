@@ -160,6 +160,7 @@
     threadTargetNeedsScroll: false,
     replyTargetPostNumber: null,
     replyTargetLabel: "",
+    replyEdit: null,
     abortController: null,
     loadMoreAbortController: null,
     replyAbortController: null,
@@ -830,10 +831,14 @@
     }
 
     if (!state.replyPanel?.hidden && !target.closest(".ld-drawer-reply-panel") && !target.closest(".ld-drawer-reply-trigger")) {
-      setReplyPanelOpen(false);
+      if (!setReplyPanelOpen(false)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
     }
 
-    if (!target.closest(".ld-flag-wrap") && !target.closest(".ld-post-react-wrap") && !target.closest(".ld-post-replies-stat-wrap")) {
+    if (!target.closest(".ld-post-react-wrap") && !target.closest(".ld-post-replies-stat-wrap")) {
       closeAllPopovers();
     }
 
@@ -908,7 +913,7 @@
     if (
       event.key === "Escape" &&
       state.root?.querySelector(
-        ".ld-reactions-popover:not([hidden]), .ld-flag-popover:not([hidden]), .ld-post-replies-popover:not([hidden])"
+        ".ld-reactions-popover:not([hidden]), .ld-post-replies-popover:not([hidden])"
       )
     ) {
       event.preventDefault();
@@ -1403,6 +1408,7 @@
   }
 
   function openDrawer(topicUrl, fallbackTitle, activeLink, fromHistory = false) {
+    if (state.replyEdit && !setReplyPanelOpen(false)) return;
     if (!fromHistory && state.previewHistory[state.previewHistoryIndex]?.url !== topicUrl) {
       state.previewHistory.splice(state.previewHistoryIndex + 1);
       state.previewHistory.push({ url: topicUrl, title: fallbackTitle });
@@ -1526,6 +1532,7 @@
   }
 
   function closeDrawer() {
+    if (state.replyEdit && !setReplyPanelOpen(false)) return;
     state.previewHistory = [];
     state.previewHistoryIndex = -1;
     state.shortcutsDialog?.close();
@@ -2212,9 +2219,30 @@
     return tag.name || tag.id || tag.text || tag.label || "";
   }
 
+  function buildPostBody(post) {
+    const body = document.createElement("div");
+    body.className = "ld-post-body cooked";
+    body.dataset.readingPostNumber = String(post.post_number);
+    body.innerHTML = post.cooked || "";
+    initializePostCarousels(body);
+    queueMicrotask(() => {
+      if (!body.isConnected) return;
+      body.setAttribute("data-ld-native-post", JSON.stringify(post));
+      body.dispatchEvent(new Event("ld-render-native-post", { bubbles: true }));
+      body.removeAttribute("data-ld-native-post");
+    });
+
+    for (const link of body.querySelectorAll("a[href]")) {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+    return body;
+  }
+
   function buildPostCard(post, topicOwner = null, inline = null) {
     const article = document.createElement("article");
     article.className = inline ? "ld-inline-post" : "ld-post-card";
+    article.dataset.postId = String(post.id);
     const ancestors = [...(inline?.ancestors || []), post.post_number];
     if (!inline && typeof post.post_number === "number") {
       article.dataset.postNumber = String(post.post_number);
@@ -2285,22 +2313,7 @@
 
     const replyToTab = inline?.parentPreview ? null : buildReplyToTab(post, ancestors);
 
-    const body = document.createElement("div");
-    body.className = "ld-post-body cooked";
-    body.dataset.readingPostNumber = String(post.post_number);
-    body.innerHTML = post.cooked || "";
-    initializePostCarousels(body);
-    queueMicrotask(() => {
-      if (!body.isConnected) return;
-      body.setAttribute("data-ld-native-post", JSON.stringify(post));
-      body.dispatchEvent(new Event("ld-render-native-post", { bubbles: true }));
-      body.removeAttribute("data-ld-native-post");
-    });
-
-    for (const link of body.querySelectorAll("a[href]")) {
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-    }
+    const body = buildPostBody(post);
 
     const postInfos = inline?.parentPreview ? null : buildPostInfos(post, ancestors);
 
@@ -2321,26 +2334,38 @@
 
     const bookmarkBtn = buildPostBookmarkButton(post);
 
-    const flagWrap = document.createElement("div");
-    flagWrap.className = "ld-flag-wrap";
     const flagBtn = document.createElement("button");
     flagBtn.type = "button";
     flagBtn.className = "ld-post-icon-btn ld-post-icon-btn--flag";
     flagBtn.setAttribute("aria-label", "举报此帖子");
     flagBtn.title = "以私密方式举报此帖子以引起注意，或发送一个关于它的个人消息";
     flagBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`;
-    const flagPopover = buildFlagPopover(post);
-    flagPopover.setAttribute("hidden", "");
+    const reportUnavailable = () => showToast("原站举报弹窗暂不可用，请通过右上角新标签打开原帖后举报。", "error");
+    flagBtn.addEventListener("ld-native-flag-error", reportUnavailable);
     flagBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const isHidden = flagPopover.hasAttribute("hidden");
       closeAllPopovers();
-      if (isHidden) {
-        flagPopover.removeAttribute("hidden");
+      flagBtn.setAttribute("data-ld-native-post", JSON.stringify(post));
+      const handled = !flagBtn.dispatchEvent(new Event("ld-open-native-flag", { bubbles: true, cancelable: true }));
+      flagBtn.removeAttribute("data-ld-native-post");
+      if (!handled) {
+        reportUnavailable();
       }
     });
-    flagWrap.append(flagBtn, flagPopover);
-    actionsLeft.append(copyLinkBtn, bookmarkBtn, flagWrap);
+    actionsLeft.append(copyLinkBtn, bookmarkBtn, flagBtn);
+    if (post.yours === true && post.can_edit === true) {
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "ld-post-icon-btn ld-post-edit-btn";
+      editBtn.setAttribute("aria-label", `编辑第 ${post.post_number} 楼`);
+      editBtn.title = "编辑此帖子";
+      editBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-13 13H3v-5Z"/><path d="m14 5 5 5"/></svg>`;
+      editBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void openPostEditor(post);
+      });
+      actionsLeft.append(editBtn);
+    }
 
     // --- Right group: reactions, reply ---
     const actionsRight = document.createElement("div");
@@ -2512,7 +2537,7 @@
       return;
     }
 
-    if (state.replyPanel?.hidden) {
+    if (state.replyPanel?.hidden && !state.replyTextarea.value) {
       setReplyTarget(null);
     }
 
@@ -2524,8 +2549,47 @@
       return;
     }
 
+    if (state.replyEdit && !setReplyPanelOpen(false)) return;
     setReplyTarget(post);
     setReplyPanelOpen(true);
+  }
+
+  async function openPostEditor(post) {
+    if (!state.currentTopic || state.isReplySubmitting || state.replyUploadPendingCount > 0) return;
+    if (state.replyEdit && !setReplyPanelOpen(false)) return;
+    const edit = {
+      post, raw: null, token: getCsrfToken(),
+      draft: state.replyTextarea.value,
+      targetNumber: state.replyTargetPostNumber,
+      targetLabel: state.replyTargetLabel
+    };
+    state.replyEdit = edit;
+    state.replyTextarea.value = "";
+    setReplyPanelOpen(true);
+    state.isReplySubmitting = true;
+    state.replyStatus.textContent = "正在读取原文…";
+    syncReplyUI();
+    const controller = new AbortController();
+    state.replyAbortController = controller;
+    try {
+      const data = await requestPostEdit(post.id, controller.signal);
+      if (controller.signal.aborted || state.replyEdit !== edit) return;
+      if (data.id !== post.id || data.yours !== true || data.can_edit !== true || typeof data.raw !== "string") {
+        throw new Error("此帖子当前不可编辑，请打开原帖确认权限。");
+      }
+      edit.raw = data.raw;
+      state.replyTextarea.value = data.raw;
+      state.replyStatus.textContent = "";
+    } catch (error) {
+      if (!controller.signal.aborted && state.replyEdit === edit) state.replyStatus.textContent = error?.message || "读取原文失败";
+    } finally {
+      if (state.replyAbortController === controller) {
+        state.replyAbortController = null;
+        state.isReplySubmitting = false;
+        syncReplyUI();
+        state.replyTextarea.focus();
+      }
+    }
   }
 
   function setReplyPanelOpen(isOpen) {
@@ -2537,7 +2601,21 @@
       return;
     }
 
+    const edit = !isOpen && state.replyEdit;
     if (!isOpen) {
+      if (edit) {
+        if (state.isReplySubmitting && edit.raw !== null) return false;
+        if (edit.raw !== null && state.replyTextarea.value !== edit.raw && !window.confirm("放弃尚未保存的修改？")) return false;
+        cancelReplyRequest();
+        cancelReplyUploads();
+        state.replyComposerSessionId += 1;
+        state.isReplySubmitting = false;
+        state.replyEdit = null;
+        state.replyTextarea.value = edit.draft;
+        state.replyTargetPostNumber = edit.targetNumber;
+        state.replyTargetLabel = edit.targetLabel;
+        state.replyStatus.textContent = "";
+      }
       stopReplyPanelDrag();
     }
 
@@ -2547,12 +2625,13 @@
 
     if (!isOpen) {
       clearReplyPanelPositionStyles();
-      setReplyTarget(null);
-      return;
+      if (!edit) setReplyTarget(null);
+      return true;
     }
 
     applyReplyPanelPosition();
     queueMicrotask(() => state.replyTextarea?.focus());
+    return true;
   }
 
   function startReplyPanelDrag(event) {
@@ -3078,24 +3157,30 @@
       return;
     }
 
-    const raw = state.replyTextarea.value.trim();
-    if (!raw) {
+    const raw = state.replyEdit ? state.replyTextarea.value : state.replyTextarea.value.trim();
+    if (!raw.trim()) {
       state.replyStatus.textContent = "先写点内容再发送。";
       state.replyTextarea.focus();
       return;
     }
 
+    const edit = state.replyEdit;
+    if (edit && edit.raw === null) return;
+    if (edit && edit.token !== getCsrfToken()) {
+      state.replyStatus.textContent = "登录状态已变化，修改已保留，请复制后重新打开原帖确认账号。";
+      return;
+    }
     cancelReplyRequest();
     state.isReplySubmitting = true;
     syncReplyUI();
-    state.replyStatus.textContent = "正在发送回复...";
+    state.replyStatus.textContent = edit ? "正在保存修改…" : "正在发送回复...";
 
     const sessionId = state.replyComposerSessionId;
     const controller = new AbortController();
     state.replyAbortController = controller;
 
     try {
-      const createdPost = await createTopicReply(
+      const createdPost = edit ? await requestPostEdit(edit.post.id, controller.signal, raw) : await createTopicReply(
         state.currentTopic.id,
         raw,
         controller.signal,
@@ -3105,6 +3190,14 @@
         return;
       }
 
+      if (edit) {
+        syncEditedPost(createdPost);
+        edit.raw = state.replyTextarea.value;
+        state.isReplySubmitting = false;
+        setReplyPanelOpen(false);
+        showToast("修改已保存", "success");
+        return;
+      }
       state.replyTextarea.value = "";
       state.replyStatus.textContent = "回复已发送。";
       if (state.root?.classList.contains(IFRAME_MODE_CLASS)) {
@@ -3120,7 +3213,7 @@
         return;
       }
 
-      state.replyStatus.textContent = error?.message || "回复发送失败";
+      state.replyStatus.textContent = error?.message || (edit ? "保存失败，修改已保留" : "回复发送失败");
     } finally {
       if (state.replyAbortController === controller) {
         state.replyAbortController = null;
@@ -3560,6 +3653,10 @@
   }
 
   function renderIframeFallback(topicUrl, fallbackTitle, error, forcedIframe = false) {
+    if (state.replyEdit) {
+      showToast("主题刷新失败，已保留当前编辑。请保存或取消编辑后重试。", "error");
+      return;
+    }
     if (state.cfChallenge) {
       syncCfChallengeNotice();
       return;
@@ -4361,6 +4458,45 @@
 
     const data = await response.json();
     return data?.post_stream?.posts || [];
+  }
+
+  async function requestPostEdit(postId, signal, raw) {
+    if (!Number.isSafeInteger(postId) || postId <= 0) throw new Error("无效的帖子");
+    const saving = typeof raw === "string";
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) throw new Error("未找到登录令牌，请刷新页面后重试");
+    const response = await fetchPreviewResponse(`${location.origin}/posts/${postId}.json`, {
+      method: saving ? "PUT" : "GET", credentials: "include", cache: "no-store",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
+      headers: {
+        Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": csrfToken
+      },
+      body: saving ? new URLSearchParams({ "post[raw]": raw }) : undefined
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error((Array.isArray(data?.errors) ? data.errors.join("；") : data?.error) || `帖子请求失败：${response.status}`);
+    const post = saving ? data?.post : data;
+    if (post?.id !== postId || (saving && typeof post.cooked !== "string")) {
+      throw new Error(saving ? "无法确认是否保存成功，修改已保留，请先在原帖核对再重试。" : "未能读取原文，请打开原帖确认登录或权限。");
+    }
+    return post;
+  }
+
+  function syncEditedPost(updated) {
+    const topics = [state.currentTopic, state.currentLatestRepliesTopic,
+      ...[...state.topicCache.values()].flatMap(entry => [entry.topic, entry.latestRepliesTopic])];
+    const posts = topics.flatMap(topic => topic?.post_stream?.posts || []);
+    posts.push(...state.replyParentCache.values());
+    for (const entry of state.directReplyCache.values()) posts.push(...entry.posts, ...(entry.pendingPosts || []));
+    posts.push(state.replyEdit.post);
+    for (const post of posts) {
+      if (post.id === updated.id) Object.assign(post, updated);
+    }
+    // 仅替换正文，保留已展开的子树、滚动位置和各楼操作。
+    for (const card of state.root.querySelectorAll(`[data-post-id="${updated.id}"]`)) {
+      card.querySelector(":scope > .ld-post-body")?.replaceWith(buildPostBody(state.replyEdit.post));
+    }
   }
 
   async function createTopicReply(topicId, raw, signal, replyToPostNumber = null) {
@@ -6408,85 +6544,6 @@
     if (["import", "export"].includes(action)) b.dialog.querySelector(".ld-bookmark-more").open = false;
   }
 
-  function buildFlagPopover(post) {
-    const popover = document.createElement("div");
-    popover.className = "ld-flag-popover";
-    popover.setAttribute("role", "menu");
-
-    const flagOptions = [
-      {
-        id: 3,
-        label: "垃圾信息",
-        description: "此帖子是广告或垃圾内容",
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`
-      },
-      {
-        id: 4,
-        label: "不当内容",
-        description: "此帖子包含令人反感的内容",
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
-      },
-      {
-        id: 7,
-        label: "需要版主关注",
-        description: "需要版主处理的问题",
-        icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`
-      }
-    ];
-
-    for (const opt of flagOptions) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "ld-flag-option";
-      btn.setAttribute("role", "menuitem");
-      btn.title = opt.description;
-      btn.innerHTML = `${opt.icon}<span>${opt.label}</span>`;
-      btn.addEventListener("click", () => handleFlagPost(post.id, opt.id, popover));
-      popover.appendChild(btn);
-    }
-
-    return popover;
-  }
-
-  async function handleFlagPost(postId, actionTypeId, popoverEl) {
-    popoverEl.setAttribute("hidden", "");
-
-    try {
-      await performFlagPost(postId, actionTypeId);
-      showToast("举报已提交", "success");
-    } catch (error) {
-      showToast(`举报失败：${error?.message || "请求未完成"}`, "error");
-    }
-  }
-
-  async function performFlagPost(postId, actionTypeId) {
-    const csrfToken = getCsrfToken();
-    if (!csrfToken) {
-      throw new Error("未找到 CSRF 令牌");
-    }
-
-    const response = await fetch(`${location.origin}/post_actions`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "X-CSRF-Token": csrfToken
-      },
-      body: new URLSearchParams({
-        id: String(postId),
-        post_action_type_id: String(actionTypeId),
-        flag_topic: "false"
-      })
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      throw new Error(data?.errors?.join("；") || `举报失败：${response.status}`);
-    }
-  }
-
   async function createComposerUpload(file, signal, options = {}) {
     const csrfToken = getCsrfToken();
     if (!csrfToken) {
@@ -6571,7 +6628,7 @@
 
   function closeAllPopovers() {
     closeBookmarkPicker();
-    state.root?.querySelectorAll(".ld-reactions-popover, .ld-flag-popover, .ld-post-replies-popover").forEach((p) => {
+    state.root?.querySelectorAll(".ld-reactions-popover, .ld-post-replies-popover").forEach((p) => {
       p.setAttribute("hidden", "");
     });
     state.root?.querySelectorAll(".ld-post-react-btn, .ld-post-info-item--replies-trigger[aria-haspopup]").forEach((btn) => {
@@ -7576,6 +7633,7 @@
     cancelReplyRequest();
     state.replyComposerSessionId += 1;
     cancelReplyUploads();
+    state.replyEdit = null;
 
     if (state.replyTextarea) {
       state.replyTextarea.value = "";
@@ -7595,6 +7653,7 @@
     syncLatestRepliesRefreshUI();
     const hasTopic = Boolean(state.currentTopic?.id);
     const isTargetedReply = Number.isFinite(state.replyTargetPostNumber);
+    const edit = state.replyEdit;
     const isReplyUploading = state.replyUploadPendingCount > 0;
     const hasCurrentUrl = Boolean(state.currentUrl);
     const isSettingsOpen = !state.settingsPanel?.hidden;
@@ -7617,34 +7676,37 @@
     }
 
     if (state.replyTextarea) {
-      state.replyTextarea.disabled = !hasTopic || state.isReplySubmitting;
+      state.replyTextarea.disabled = !hasTopic || state.isReplySubmitting || Boolean(edit && edit.raw === null);
+      state.replyTextarea.setAttribute("aria-label", edit ? "编辑帖子正文" : "回复正文");
       if (hasTopic) {
-        state.replyTextarea.placeholder = isTargetedReply
+        state.replyTextarea.placeholder = edit ? "编辑正文，支持 Markdown 和粘贴图片，Ctrl+Enter 或 Cmd+Enter 保存"
+          : isTargetedReply
           ? buildReplyTextareaPlaceholder(`回复 ${state.replyTargetLabel}`)
           : buildReplyTextareaPlaceholder(`回复《${state.currentTopic.title || state.currentFallbackTitle || "当前主题"}》`);
       }
     }
 
     if (state.replyPanelTitle) {
-      state.replyPanelTitle.textContent = isTargetedReply
+      state.replyPanelTitle.textContent = edit ? `编辑第 ${edit.post.post_number} 楼` : isTargetedReply
         ? `回复 ${state.replyTargetLabel}`
         : "回复主题";
     }
 
     if (state.replySubmitButton) {
-      state.replySubmitButton.disabled = !hasTopic || state.isReplySubmitting || isReplyUploading;
+      state.replySubmitButton.disabled = !hasTopic || state.isReplySubmitting || isReplyUploading || Boolean(edit && edit.raw === null);
       state.replySubmitButton.textContent = state.isReplySubmitting
-        ? "发送中..."
+        ? (edit ? "处理中…" : "发送中...")
         : (isReplyUploading
           ? (state.replyUploadPendingCount > 1
             ? `上传 ${state.replyUploadPendingCount} 张图片中...`
             : "图片上传中...")
-          : "发送回复");
+          : (edit ? "保存修改" : "发送回复"));
     }
 
     if (state.replyCancelButton) {
-      state.replyCancelButton.disabled = state.isReplySubmitting;
+      state.replyCancelButton.disabled = state.isReplySubmitting && (!edit || edit.raw !== null);
     }
+    state.root.querySelector(".ld-reply-panel-close").setAttribute("aria-label", edit ? "关闭编辑" : "关闭快速回复");
   }
 
   function buildReplyTextareaPlaceholder(prefix = "写点什么") {
@@ -7714,7 +7776,7 @@
     }
 
     if (isOpen) {
-      setReplyPanelOpen(false);
+      if (!setReplyPanelOpen(false)) return;
       syncSettingsUI();
       updateSettingsPopoverPosition();
       queueMicrotask(() => state.settingsCard?.querySelector(".ld-setting-control")?.focus());
